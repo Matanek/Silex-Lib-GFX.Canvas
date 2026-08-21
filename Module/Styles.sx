@@ -1,0 +1,136 @@
+use GFX.Color
+use GFX.Canvas.Font.Font
+use STD.Math
+
+public struct Brush {
+    private var gradient:bool
+    private var start:Math.Vec2
+    private var end:Math.Vec2
+    private var start_color:Color
+    private var end_color:Color
+
+    module init() {
+        self.gradient = false
+        self.start = Math.Vec2()
+        self.end = Math.Vec2()
+        self.start_color = Color.white()
+        self.end_color = Color.white()
+    }
+
+    static func solid(color:Color) Brush {
+        var brush = Brush()
+        brush.start_color = color
+        brush.end_color = color
+        return brush
+    }
+
+    static func linear(
+        start:Math.Vec2,
+        end:Math.Vec2,
+        start_color:Color,
+        end_color:Color
+    ) Brush {
+        if start.nearly_equal(end, Math.epsilon()) {
+            panic("GFX.Canvas linear gradient endpoints must be distinct")
+        }
+        var brush = Brush()
+        brush.gradient = true
+        brush.start = start
+        brush.end = end
+        brush.start_color = start_color
+        brush.end_color = end_color
+        return brush
+    }
+
+    func color_at(position:Math.Vec2) Color {
+        if !self.gradient { return self.start_color }
+        let direction = self.end.subtract(self.start)
+        let amount = Math.clamp(
+            position.subtract(self.start).dot(direction) / direction.length_squared(),
+            0.0,
+            1.0
+        )
+        return self.start_color.lerp(self.end_color, amount)
+    }
+}
+
+public struct Fill {
+    private var current_brush:Brush
+
+    init(color:Color) { self.current_brush = Brush.solid(color) }
+
+    static func solid(color:Color) Fill { return Fill(color) }
+    static func with_brush(brush:Brush) Fill {
+        var fill = Fill(Color.white())
+        fill.current_brush = brush
+        return fill
+    }
+
+    func brush() Brush { return self.current_brush }
+}
+
+public enum StrokeCap { butt; round; square }
+public enum StrokeJoin { miter; round; bevel }
+
+public struct Stroke {
+    private var current_brush:Brush
+    let width:float
+    var cap:StrokeCap
+    var join:StrokeJoin
+
+    init(color:Color, width:float = 1.0) {
+        if width <= 0.0 { panic("GFX.Canvas stroke width must be positive") }
+        self.current_brush = Brush.solid(color)
+        self.width = width
+        self.cap = StrokeCap.butt
+        self.join = StrokeJoin.miter
+    }
+
+    static func with_brush(brush:Brush, width:float = 1.0) Stroke {
+        if width <= 0.0 { panic("GFX.Canvas stroke width must be positive") }
+        var stroke = Stroke(Color.white(), width)
+        stroke.current_brush = brush
+        return stroke
+    }
+
+    func brush() Brush { return self.current_brush }
+}
+
+public enum TextAlignment { start; center; end }
+public enum TextWeight { regular; bold }
+
+func resolved_font(font:Font?) Font {
+    if let custom_font = font { return custom_font }
+    return Font.default()
+}
+
+public struct TextStyle {
+    var size:float
+    var color:Color
+    var alignment:TextAlignment
+    var weight:TextWeight
+    var font:Font?
+
+    init(
+        size:float = 16.0,
+        color:Color = Color(),
+        alignment:TextAlignment = TextAlignment.start,
+        weight:TextWeight = TextWeight.regular,
+        font:Font? = null
+    ) {
+        if size <= 0.0 { panic("GFX.Canvas text size must be positive") }
+        self.size = size
+        self.color = color
+        self.alignment = alignment
+        self.weight = weight
+        self.font = resolved_font(font)
+    }
+
+    module func typeface() Font { return resolved_font(self.font) }
+}
+
+public struct TextMetrics {
+    let width:float
+    let height:float
+    let lines:int
+}

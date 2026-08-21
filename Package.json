@@ -1,0 +1,93 @@
+{
+  "name": "GFX.Canvas",
+  "version": "0.1.0",
+  "requires": { "silex": ">=0.38.36" },
+  "dependencies": {
+    "GFX": "^0.37.0",
+    "GFX.Assets": "^0.1.0",
+    "STD": "^0.16.0"
+  },
+  "devDependencies": {
+    "GFX.Viewer": "^0.1.0"
+  },
+  "boundary": {
+    "macos-arm64": {
+      "providers": {
+        "SDL3": {
+          "requires": ["GFX.SDL3"]
+        },
+        "SDL3_ttf": {
+          "archive": "Boundary/macos-arm64/libSDL3_ttf.a",
+          "frameworks": ["CoreFoundation", "CoreGraphics", "CoreText"],
+          "requires": ["GFX.SDL3"]
+        }
+      }
+    },
+    "linux-x64": {
+      "providers": {
+        "SDL3": {
+          "requires": ["GFX.SDL3"]
+        },
+        "SDL3_ttf": {
+          "archive": "Boundary/linux-x64/libSDL3_ttf.a",
+          "libraries": ["m", "pthread"],
+          "requires": ["GFX.SDL3"]
+        }
+      }
+    },
+    "windows-x64": {
+      "providers": {
+        "SDL3": {
+          "requires": ["GFX.SDL3"]
+        },
+        "SDL3_ttf": {
+          "archive": "Boundary/windows-x64/SDL3_ttf.lib",
+          "libraries": ["gdi32", "rpcrt4", "usp10"],
+          "requires": ["GFX.SDL3"]
+        }
+      }
+    },
+    "windows-arm64": {
+      "providers": {
+        "SDL3": {
+          "requires": ["GFX.SDL3"]
+        },
+        "SDL3_ttf": {
+          "archive": "Boundary/windows-arm64/SDL3_ttf.lib",
+          "libraries": ["gdi32", "rpcrt4", "usp10"],
+          "requires": ["GFX.SDL3"]
+        }
+      }
+    }
+  },
+  "artifacts": {
+    "macos-arm64": {
+      "SDL3_ttf": {
+        "path": "Boundary/macos-arm64/libSDL3_ttf.a",
+        "url": "https://github.com/Matanek/Silex-Lib-GFX/releases/download/sdl3-3.4.10-silex.1/SDL3_ttf-3.2.2-macos-arm64.a",
+        "sha256": "09082a212708697d437eb79f56dc84dc01751fa83116ca6c0cc4aa8a0180dd85"
+      }
+    },
+    "linux-x64": {
+      "SDL3_ttf": {
+        "path": "Boundary/linux-x64/libSDL3_ttf.a",
+        "url": "https://github.com/Matanek/Silex-Lib-GFX/releases/download/sdl3-3.4.10-silex.1/SDL3_ttf-3.2.2-linux-x64.a",
+        "sha256": "b8af5c4cd8e5b547dbee934369238f529ed57057a8f542570783e8505aa7710d"
+      }
+    },
+    "windows-x64": {
+      "SDL3_ttf": {
+        "path": "Boundary/windows-x64/SDL3_ttf.lib",
+        "url": "https://github.com/Matanek/Silex-Lib-GFX/releases/download/sdl3-3.4.10-silex.1/SDL3_ttf-3.2.2-windows-x64.lib",
+        "sha256": "9adebcbbddc05673dd04fa4260ca8f58f4620ff78b5c38c98e8b2792cc7cd9d7"
+      }
+    },
+    "windows-arm64": {
+      "SDL3_ttf": {
+        "path": "Boundary/windows-arm64/SDL3_ttf.lib",
+        "url": "https://github.com/Matanek/Silex-Lib-GFX/releases/download/sdl3-3.4.10-silex.1/SDL3_ttf-3.2.2-windows-arm64.lib",
+        "sha256": "36f7b73b740fe70140fb0647db1774d083427ec59e16f3e7b4b311741503bbb0"
+      }
+    }
+  }
+}

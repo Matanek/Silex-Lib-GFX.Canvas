@@ -1,0 +1,29 @@
+use GFX.Color
+use GFX.Canvas
+use GFX.Viewer
+use STD.Math
+
+func main() {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        let start = Math.Vec2(16.0, 72.0)
+        let end = Math.Vec2(144.0, 72.0)
+        let line = Canvas.Line(start, end)
+        let brush = Canvas.Brush.linear(
+            start:start,
+            end:end,
+            start_color:Color.red_500(),
+            end_color:Color.blue_500()
+        )
+        painter.fill(
+            Canvas.Rect(Math.Vec2(16.0), Math.Vec2(128.0, 40.0), 8.0),
+            Canvas.Fill.with_brush(brush)
+        )
+        painter.stroke(line, Canvas.Stroke.with_brush(brush, 8.0))
+    })
+    let image = drawing.rasterize(160, 88)
+    assert(image.width() == 160)
+    assert(image.height() == 88)
+    assert(drawing.command_count() == 2)
+    Viewer.show(image, Viewer.ImageSettings(title:"GFX.Canvas — Linear gradient"))
+}

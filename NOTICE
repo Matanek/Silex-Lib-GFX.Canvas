@@ -1,0 +1,8 @@
+Silex GFX.Canvas
+Copyright 2026 Matanek and Silex contributors
+
+This product is licensed under the Apache License, Version 2.0.
+
+GFX.Canvas distributes target-specific SDL3_ttf static artifacts and embeds
+Noto Sans as its default font. Their notices and those of bundled SDL3_ttf
+dependencies are kept in the Licenses directory.

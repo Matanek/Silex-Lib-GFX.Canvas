@@ -1,0 +1,71 @@
+use STD.Math
+
+public struct Rect {
+    let position:Math.Vec2
+    let size:Math.Vec2
+    let radius:float
+
+    init(position:Math.Vec2, size:Math.Vec2, radius:float = 0.0) {
+        self.position = position
+        self.size = size
+        self.radius = radius
+    }
+}
+
+public struct Circle {
+    let center:Math.Vec2
+    let radius:float
+
+    init(center:Math.Vec2, radius:float) {
+        self.center = center
+        self.radius = radius
+    }
+}
+
+public struct Ellipse {
+    let center:Math.Vec2
+    let radii:Math.Vec2
+
+    init(center:Math.Vec2, radii:Math.Vec2) {
+        self.center = center
+        self.radii = radii
+    }
+}
+
+public struct Arc {
+    let center:Math.Vec2
+    let radius:float
+    let start:float
+    let sweep:float
+
+    init(center:Math.Vec2, radius:float, start:float, sweep:float) {
+        self.center = center
+        self.radius = radius
+        self.start = start
+        self.sweep = sweep
+    }
+}
+
+public struct Sector {
+    let center:Math.Vec2
+    let radius:float
+    let start:float
+    let sweep:float
+
+    init(center:Math.Vec2, radius:float, start:float, sweep:float) {
+        self.center = center
+        self.radius = radius
+        self.start = start
+        self.sweep = sweep
+    }
+}
+
+public struct Line {
+    let start:Math.Vec2
+    let end:Math.Vec2
+
+    init(start:Math.Vec2, end:Math.Vec2) {
+        self.start = start
+        self.end = end
+    }
+}

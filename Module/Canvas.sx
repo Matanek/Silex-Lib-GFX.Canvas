@@ -1,0 +1,228 @@
+use GFX.Assets.Image
+use GFX.Color
+use GFX.Canvas.Command
+use GFX.Canvas.Geometry
+use GFX.Canvas.Path.Path
+use GFX.Canvas.Rasterizer
+use GFX.Canvas.Shapes.Arc
+use GFX.Canvas.Shapes.Circle
+use GFX.Canvas.Shapes.Ellipse
+use GFX.Canvas.Shapes.Line
+use GFX.Canvas.Shapes.Rect
+use GFX.Canvas.Shapes.Sector
+use GFX.Canvas.Snapshot.Snapshot
+use GFX.Canvas.Styles.Fill
+use GFX.Canvas.Styles.Stroke
+use GFX.Canvas.Styles.TextMetrics
+use GFX.Canvas.Styles.TextStyle
+use GFX.Canvas.Vectorizer
+use STD.Math
+
+public class Canvas {
+    private var current_commands:Command[]
+    private var current_revision:int
+    private var cached_snapshot:Snapshot? = null
+    private var cached_snapshot_revision:int = 0
+    private var cached_snapshot_width:int = 0
+    private var cached_snapshot_height:int = 0
+
+    init() {
+        self.current_commands = []
+        self.current_revision = 1
+    }
+
+    func paint(callback:func(&Painter)) Canvas {
+        var painter = Painter(self)
+        callback(painter)
+        return self
+    }
+
+    func clear() {
+        self.current_commands.clear()
+        self.current_revision++
+    }
+
+    func rasterize(width:int, height:int, background:Color = Color.transparent()) Image {
+        return Rasterizer.rasterize(self.current_commands, width, height, background)
+    }
+
+    func measure_text(value:str, style:TextStyle = TextStyle()) TextMetrics {
+        return Rasterizer.measure_text(value, style)
+    }
+
+    func commands() Command[] { return self.current_commands }
+    func revision() int { return self.current_revision }
+    func is_empty() bool { return self.current_commands.count() == 0 }
+    func command_count() int { return self.current_commands.count() }
+
+    func vector_geometry() Geometry.Mesh {
+        return Vectorizer.geometry(self.current_commands)
+    }
+
+    func snapshot(width:int, height:int) Snapshot {
+        if self.cached_snapshot_revision == self.current_revision &&
+            self.cached_snapshot_width == width && self.cached_snapshot_height == height
+        {
+            if let snapshot = self.cached_snapshot { return snapshot }
+        }
+        var snapshot = Snapshot(
+            self.vector_geometry(),
+            self.current_commands,
+            width,
+            height
+        )
+        self.cached_snapshot = snapshot
+        self.cached_snapshot_revision = self.current_revision
+        self.cached_snapshot_width = width
+        self.cached_snapshot_height = height
+        return snapshot
+    }
+
+    module func text_image(width:int, height:int) Image {
+        return Rasterizer.rasterize_text(self.current_commands, width, height)
+    }
+
+    module func has_text() bool {
+        for command in self.current_commands {
+            match command { text(value) => { return true }; else => {} }
+        }
+        return false
+    }
+
+    module func append(command:Command) {
+        self.current_commands.append(command)
+        self.current_revision++
+    }
+}
+
+public struct Painter {
+    private var canvas:Canvas
+
+    module init(canvas:Canvas) { self.canvas = canvas }
+
+    func fill(shape:Rect, style:Fill) {
+        validate_rect(shape)
+        self.canvas.append(Command.fill_rect(Command.FillRect(shape:shape, style:style)))
+    }
+
+    func stroke(shape:Rect, style:Stroke) {
+        validate_rect(shape)
+        self.canvas.append(Command.stroke_rect(Command.StrokeRect(shape:shape, style:style)))
+    }
+
+    func fill(shape:Circle, style:Fill) {
+        validate_circle(shape)
+        self.canvas.append(Command.fill_circle(Command.FillCircle(shape:shape, style:style)))
+    }
+
+    func stroke(shape:Circle, style:Stroke) {
+        validate_circle(shape)
+        self.canvas.append(Command.stroke_circle(Command.StrokeCircle(shape:shape, style:style)))
+    }
+
+    func fill(shape:Ellipse, style:Fill) {
+        validate_ellipse(shape)
+        self.fill(ellipse_path(shape), style)
+    }
+
+    func stroke(shape:Ellipse, style:Stroke) {
+        validate_ellipse(shape)
+        self.stroke(ellipse_path(shape), style)
+    }
+
+    func stroke(shape:Arc, style:Stroke) {
+        validate_arc(shape.radius, shape.sweep)
+        self.stroke(arc_path(shape.center, shape.radius, shape.start, shape.sweep), style)
+    }
+
+    func fill(shape:Sector, style:Fill) {
+        validate_arc(shape.radius, shape.sweep)
+        var path = Path()
+            ..move_to(shape.center)
+            ..line_to(arc_point(shape.center, shape.radius, shape.start))
+            ..arc_to(shape.center, shape.radius, shape.start, shape.sweep)
+            ..close()
+        self.fill(path, style)
+    }
+
+    func stroke(shape:Sector, style:Stroke) {
+        validate_arc(shape.radius, shape.sweep)
+        var path = Path()
+            ..move_to(shape.center)
+            ..line_to(arc_point(shape.center, shape.radius, shape.start))
+            ..arc_to(shape.center, shape.radius, shape.start, shape.sweep)
+            ..close()
+        self.stroke(path, style)
+    }
+
+    func stroke(shape:Line, style:Stroke) {
+        self.canvas.append(Command.stroke_line(Command.StrokeLine(shape:shape, style:style)))
+    }
+
+    func fill(shape:Path, style:Fill) {
+        if shape.is_empty() { panic("GFX.Canvas cannot fill an empty path") }
+        self.canvas.append(Command.fill_path(Command.FillPath(shape:shape, style:style)))
+    }
+
+    func stroke(shape:Path, style:Stroke) {
+        if shape.is_empty() { panic("GFX.Canvas cannot stroke an empty path") }
+        self.canvas.append(Command.stroke_path(Command.StrokePath(shape:shape, style:style)))
+    }
+
+    func text(value:str, position:Math.Vec2, style:TextStyle = TextStyle()) {
+        self.canvas.append(Command.text(Command.Text(value:value, position:position, style:style)))
+    }
+}
+
+func validate_rect(shape:Rect) {
+    if shape.size.x <= 0.0 || shape.size.y <= 0.0 {
+        panic("GFX.Canvas rectangle size must be positive")
+    }
+    if shape.radius < 0.0 { panic("GFX.Canvas rectangle radius cannot be negative") }
+}
+
+func validate_circle(shape:Circle) {
+    if shape.radius <= 0.0 { panic("GFX.Canvas circle radius must be positive") }
+}
+
+func validate_ellipse(shape:Ellipse) {
+    if shape.radii.x <= 0.0 || shape.radii.y <= 0.0 {
+        panic("GFX.Canvas ellipse radii must be positive")
+    }
+}
+
+func validate_arc(radius:float, sweep:float) {
+    if radius <= 0.0 { panic("GFX.Canvas arc radius must be positive") }
+    if sweep == 0.0 { panic("GFX.Canvas arc sweep cannot be zero") }
+}
+
+func arc_point(center:Math.Vec2, radius:float, angle:float) Math.Vec2 {
+    return center.add(Math.Vec2(Math.cos(angle) * radius, Math.sin(angle) * radius))
+}
+
+func arc_path(center:Math.Vec2, radius:float, start:float, sweep:float) Path {
+    return Path()
+        ..move_to(arc_point(center, radius, start))
+        ..arc_to(center, radius, start, sweep)
+}
+
+func ellipse_path(shape:Ellipse) Path {
+    let segments = Rasterizer.round_curve_segments(
+        Math.max(shape.radii.x, shape.radii.y),
+        Math.two_pi()
+    )
+    var path = Path()
+    var index = 0
+    while index <= segments {
+        let angle = Math.pi() * 2.0 * index as float / segments as float
+        let point = shape.center.add(Math.Vec2(
+            Math.cos(angle) * shape.radii.x,
+            Math.sin(angle) * shape.radii.y
+        ))
+        if index == 0 { path.move_to(point) }
+        else { path.line_to(point) }
+        index++
+    }
+    path.close()
+    return path
+}

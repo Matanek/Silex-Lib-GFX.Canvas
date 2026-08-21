@@ -1,0 +1,97 @@
+use STD.Math
+
+public struct QuadraticCurve {
+    let control:Math.Vec2
+    let end:Math.Vec2
+}
+
+public struct CubicCurve {
+    let control_a:Math.Vec2
+    let control_b:Math.Vec2
+    let end:Math.Vec2
+}
+
+public struct ArcCurve {
+    let center:Math.Vec2
+    let radius:float
+    let start:float
+    let sweep:float
+}
+
+public enum Step {
+    moved(Math.Vec2)
+    lined(Math.Vec2)
+    quadratic(QuadraticCurve)
+    cubic(CubicCurve)
+    arc(ArcCurve)
+    close
+}
+
+public class Path {
+    private var current_steps:Step[]
+    private var started:bool
+    private var closed:bool
+
+    init() {
+        self.current_steps = []
+        self.started = false
+        self.closed = false
+    }
+
+    func move_to(point:Math.Vec2) Path {
+        if self.started { panic("GFX.Canvas path currently supports one contour") }
+        self.current_steps.append(Step.moved(point))
+        self.started = true
+        return self
+    }
+
+    func line_to(point:Math.Vec2) Path {
+        self.require_open()
+        self.current_steps.append(Step.lined(point))
+        return self
+    }
+
+    func quadratic_to(control:Math.Vec2, end:Math.Vec2) Path {
+        self.require_open()
+        self.current_steps.append(Step.quadratic(QuadraticCurve(control:control, end:end)))
+        return self
+    }
+
+    func cubic_to(control_a:Math.Vec2, control_b:Math.Vec2, end:Math.Vec2) Path {
+        self.require_open()
+        self.current_steps.append(Step.cubic(CubicCurve(
+            control_a:control_a,
+            control_b:control_b,
+            end:end
+        )))
+        return self
+    }
+
+    func arc_to(center:Math.Vec2, radius:float, start:float, sweep:float) Path {
+        self.require_open()
+        if radius <= 0.0 { panic("GFX.Canvas path arc radius must be positive") }
+        if sweep == 0.0 { panic("GFX.Canvas path arc sweep cannot be zero") }
+        self.current_steps.append(Step.arc(ArcCurve(
+            center:center,
+            radius:radius,
+            start:start,
+            sweep:sweep
+        )))
+        return self
+    }
+
+    func close() Path {
+        self.require_open()
+        self.current_steps.append(Step.close())
+        self.closed = true
+        return self
+    }
+
+    func is_empty() bool { return self.current_steps.count() == 0 }
+    func steps() Step[] { return self.current_steps }
+
+    private func require_open() {
+        if !self.started { panic("GFX.Canvas path must begin with move_to") }
+        if self.closed { panic("GFX.Canvas path is already closed") }
+    }
+}

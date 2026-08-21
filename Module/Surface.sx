@@ -1,0 +1,130 @@
+use GFX.Assets.Image
+use GFX.Canvas.PackedStorage.packed_storage
+use GFX.Color
+use GFX.Canvas.Canvas.Canvas
+use GFX.Canvas.Canvas.Painter
+use Interop.Boundary
+use Interop.C
+use STD.Math
+
+public class Surface {
+    private let canvas_width:int
+    private let canvas_height:int
+    private var current_pixels:str
+
+    init(width:int, height:int, background:Color = Color.transparent()) {
+        if width <= 0 || height <= 0 {
+            panic("GFX.Canvas.Surface dimensions must be positive")
+        }
+        self.canvas_width = width
+        self.canvas_height = height
+        self.current_pixels = "\0"
+        self.clear(background)
+    }
+
+    func width() int { return self.canvas_width }
+    func height() int { return self.canvas_height }
+
+    func clear(color:Color = Color.transparent()) {
+        let red = channel(color.r)
+        let green = channel(color.g)
+        let blue = channel(color.b)
+        let alpha = channel(color.a)
+        var pixels = packed_storage(self.canvas_width * self.canvas_height * 4)
+        let address = C.address_bits(C.mutable_string_pointer(pixels))
+        var index = 0
+        while index < self.canvas_width * self.canvas_height {
+            let offset = index * 4
+            let stored_red = C.store<uint8>(address, offset as uint, red)
+            let stored_green = C.store<uint8>(address, (offset + 1) as uint, green)
+            let stored_blue = C.store<uint8>(address, (offset + 2) as uint, blue)
+            let stored_alpha = C.store<uint8>(address, (offset + 3) as uint, alpha)
+            index++
+        }
+        self.current_pixels = pixels
+    }
+
+    func paint(callback:func(&Painter)) Surface {
+        var canvas = Canvas()
+        canvas.paint(callback)
+        self.draw(canvas.rasterize(self.canvas_width, self.canvas_height), Math.Vec2())
+        return self
+    }
+
+    func draw(content:Canvas) Surface {
+        self.draw(content.rasterize(self.canvas_width, self.canvas_height), Math.Vec2())
+        return self
+    }
+
+    func draw(content:Image, position:Math.Vec2 = Math.Vec2(), opacity:float = 1.0) Surface {
+        if opacity < 0.0 || opacity > 1.0 {
+            panic("GFX.Canvas.Surface image opacity must be between zero and one")
+        }
+        let origin_x = Math.floor(position.x) as int
+        let origin_y = Math.floor(position.y) as int
+        let source_pixels = content.packed_pixels()
+        let source = C.address_bits(C.pointer(source_pixels))
+        var destination = self.current_pixels
+        let destination_address = C.address_bits(C.mutable_string_pointer(destination))
+        var source_y = 0
+        while source_y < content.height() {
+            let target_y = origin_y + source_y
+            if target_y >= 0 && target_y < self.canvas_height {
+                var source_x = 0
+                while source_x < content.width() {
+                    let target_x = origin_x + source_x
+                    if target_x >= 0 && target_x < self.canvas_width {
+                        let source_offset = (source_y * content.width() + source_x) * 4
+                        let destination_offset = (target_y * self.canvas_width + target_x) * 4
+                        composite(destination_address, destination_offset, source, source_offset, opacity)
+                    }
+                    source_x++
+                }
+            }
+            source_y++
+        }
+        self.current_pixels = destination
+        return self
+    }
+
+    func pixels() uint8[] { return self.image().pixels() }
+
+    func image() Image {
+        let byte_count = self.canvas_width * self.canvas_height * 4
+        var pixels = packed_storage(byte_count)
+        let copied = C.address_bits(sdl_memcpy(
+            C.mutable_string_pointer(pixels),
+            C.pointer(self.current_pixels),
+            byte_count as C.Size
+        ))
+        return Image.packed_rgba8(self.canvas_width, self.canvas_height, pixels)
+    }
+}
+
+func composite(destination:uint, destination_offset:int, source:uint, source_offset:int, opacity:float) {
+    let source_alpha = C.load<uint8>(source, (source_offset + 3) as uint) as float / 255.0 * opacity
+    if source_alpha <= 0.0 { return }
+    let destination_alpha = C.load<uint8>(destination, (destination_offset + 3) as uint) as float / 255.0
+    let output_alpha = source_alpha + destination_alpha * (1.0 - source_alpha)
+    if output_alpha <= 0.0 { return }
+    var channel_index = 0
+    while channel_index < 3 {
+        let source_value = C.load<uint8>(source, (source_offset + channel_index) as uint) as float / 255.0
+        let destination_value = C.load<uint8>(destination, (destination_offset + channel_index) as uint) as float / 255.0
+        let stored = C.store<uint8>(destination, (destination_offset + channel_index) as uint, channel(
+            (source_value * source_alpha + destination_value * destination_alpha * (1.0 - source_alpha)) /
+            output_alpha
+        ))
+        channel_index++
+    }
+    let stored_alpha = C.store<uint8>(destination, (destination_offset + 3) as uint, channel(output_alpha))
+}
+
+func channel(value:float) uint8 {
+    return Math.round(Math.clamp(value, 0.0, 1.0) * 255.0) as uint8
+}
+
+let sdl_memcpy = C.function<func(C.Pointer<uint8>, C.Pointer<uint8>, C.Size) C.Pointer<uint8> >(
+    library:Boundary.SDL3,
+    name:"SDL_memcpy"
+)

@@ -1,0 +1,19 @@
+use GFX.Canvas
+use GFX.Color
+use STD.Math
+
+test "consume the public Canvas surface" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Rect(Math.Vec2(), Math.Vec2(16.0), 2.0),
+            Canvas.Fill.solid(Color.indigo_500())
+        )
+        painter.text("Silex", Math.Vec2(1.0), Canvas.TextStyle(size:6.0))
+    })
+
+    let image = drawing.rasterize(16, 16)
+    assert(drawing.command_count() == 2)
+    assert(image.width() == 16)
+    assert(image.height() == 16)
+}

@@ -1,0 +1,851 @@
+use GFX.Assets.Image
+use GFX.Canvas.PackedStorage.packed_storage
+use GFX.Color
+use GFX.Canvas.Command
+use GFX.Canvas.Path.Path
+use GFX.Canvas.Path.Step
+use GFX.Canvas.Styles.Brush
+use GFX.Canvas.Styles.TextAlignment
+use GFX.Canvas.Styles.TextMetrics
+use GFX.Canvas.Styles.TextStyle
+use GFX.Canvas.Styles.TextWeight
+use GFX.Canvas.Font.Font
+use STD.Math
+use STD.Text.UTF8
+use Interop.Boundary
+use Interop.C
+
+struct Polyline {
+    var points:Math.Vec2[]
+    var closed:bool
+}
+
+struct RectFillCoverage { let position:Math.Vec2; let size:Math.Vec2; let radius:float }
+struct RectStrokeCoverage { let position:Math.Vec2; let size:Math.Vec2; let radius:float; let width:float }
+struct CircleFillCoverage { let center:Math.Vec2; let radius:float }
+struct CircleStrokeCoverage { let center:Math.Vec2; let radius:float; let width:float }
+struct LineStrokeCoverage { let start:Math.Vec2; let end:Math.Vec2; let width:float }
+
+enum Coverage {
+    rect_fill(RectFillCoverage)
+    rect_stroke(RectStrokeCoverage)
+    circle_fill(CircleFillCoverage)
+    circle_stroke(CircleStrokeCoverage)
+    line_stroke(LineStrokeCoverage)
+}
+
+struct Bounds {
+    let minimum:Math.Vec2
+    let maximum:Math.Vec2
+}
+
+public struct TextImage {
+    let image:Image
+    let origin:Math.Vec2
+    let size:Math.Vec2
+}
+
+func rasterize(commands:@Command[], width:int, height:int, background:Color) Image {
+    return rasterize_selected(commands, width, height, background, true, true)
+}
+
+func rasterize_text(
+    commands:@Command[],
+    width:int,
+    height:int,
+    scale:float = 1.0
+) Image {
+    if scale <= 0.0 { panic("GFX.Canvas text raster scale must be positive") }
+    return rasterize_selected(
+        commands,
+        Math.ceil(width as float * scale) as int,
+        Math.ceil(height as float * scale) as int,
+        Color.transparent(),
+        false,
+        true,
+        scale
+    )
+}
+
+func rasterize_cropped_text(
+    commands:@Command[],
+    width:int,
+    height:int,
+    scale:float = 1.0
+) TextImage {
+    if scale <= 0.0 { panic("GFX.Canvas text raster scale must be positive") }
+    let maximum = Math.Vec2(width as float * scale, height as float * scale)
+    var minimum = maximum
+    var upper = Math.Vec2()
+    var found = false
+    for command in commands {
+        match command {
+            text(value) => {
+                if value.value == "" { continue }
+                var style = value.style
+                style.size *= scale
+                let metrics = measure_text(value.value, style)
+                var x = value.position.x * scale
+                if style.alignment == TextAlignment.center { x -= metrics.width * 0.5 }
+                if style.alignment == TextAlignment.end { x -= metrics.width }
+                let y = value.position.y * scale
+                minimum = Math.Vec2(Math.min(minimum.x, x), Math.min(minimum.y, y))
+                upper = Math.Vec2(
+                    Math.max(upper.x, x + metrics.width),
+                    Math.max(upper.y, y + metrics.height)
+                )
+                found = true
+            }
+            else => {}
+        }
+    }
+    if !found {
+        return TextImage(image:Image(), origin:Math.Vec2(), size:Math.Vec2())
+    }
+    let left = Math.max(0.0, Math.floor(minimum.x))
+    let top = Math.max(0.0, Math.floor(minimum.y))
+    let right = Math.min(maximum.x, Math.ceil(upper.x))
+    let bottom = Math.min(maximum.y, Math.ceil(upper.y))
+    if right <= left || bottom <= top {
+        return TextImage(image:Image(), origin:Math.Vec2(), size:Math.Vec2())
+    }
+    let cropped_width = (right - left) as int
+    let cropped_height = (bottom - top) as int
+    let origin = Math.Vec2(left, top)
+    return TextImage(
+        image:rasterize_selected(
+            commands,
+            cropped_width,
+            cropped_height,
+            Color.transparent(),
+            false,
+            true,
+            scale,
+            origin
+        ),
+        origin:origin.multiply(1.0 / scale),
+        size:Math.Vec2(cropped_width as float / scale, cropped_height as float / scale)
+    )
+}
+
+func rasterize_selected(
+    commands:@Command[],
+    width:int,
+    height:int,
+    background:Color,
+    include_shapes:bool,
+    include_text:bool,
+    text_scale:float = 1.0,
+    text_origin:Math.Vec2 = Math.Vec2()
+) Image {
+    if width <= 0 || height <= 0 {
+        panic("GFX.Canvas raster dimensions must be positive")
+    }
+    var pixels = packed_storage(width * height * 4)
+    let address = C.address_bits(C.mutable_string_pointer(pixels))
+    let red = color_channel(background.r)
+    let green = color_channel(background.g)
+    let blue = color_channel(background.b)
+    let alpha = color_channel(background.a)
+    var pixel = 0
+    while pixel < width * height {
+        write_byte(address, pixel * 4, red)
+        write_byte(address, pixel * 4 + 1, green)
+        write_byte(address, pixel * 4 + 2, blue)
+        write_byte(address, pixel * 4 + 3, alpha)
+        pixel++
+    }
+
+    for command in commands {
+        match command {
+            fill_rect(value) => {
+                if !include_shapes { continue }
+                draw_covered(address, width, height, value.style.brush(), Coverage.rect_fill(RectFillCoverage(
+                    position:value.shape.position, size:value.shape.size, radius:value.shape.radius
+                )))
+            }
+            stroke_rect(value) => {
+                if !include_shapes { continue }
+                draw_covered(address, width, height, value.style.brush(), Coverage.rect_stroke(RectStrokeCoverage(
+                    position:value.shape.position, size:value.shape.size, radius:value.shape.radius, width:value.style.width
+                )))
+            }
+            fill_circle(value) => {
+                if !include_shapes { continue }
+                draw_covered(address, width, height, value.style.brush(), Coverage.circle_fill(CircleFillCoverage(
+                    center:value.shape.center, radius:value.shape.radius
+                )))
+            }
+            stroke_circle(value) => {
+                if !include_shapes { continue }
+                draw_covered(address, width, height, value.style.brush(), Coverage.circle_stroke(CircleStrokeCoverage(
+                    center:value.shape.center, radius:value.shape.radius, width:value.style.width
+                )))
+            }
+            stroke_line(value) => {
+                if !include_shapes { continue }
+                draw_covered(address, width, height, value.style.brush(), Coverage.line_stroke(LineStrokeCoverage(
+                    start:value.shape.start, end:value.shape.end, width:value.style.width
+                )))
+            }
+            fill_path(value) => {
+                if !include_shapes { continue }
+                let polyline = flatten(value.shape)
+                draw_path(address, width, height, value.style.brush(), polyline, 0.0, true)
+            }
+            stroke_path(value) => {
+                if !include_shapes { continue }
+                let polyline = flatten(value.shape)
+                draw_path(address, width, height, value.style.brush(), polyline, value.style.width * 0.5, false)
+            }
+            text(value) => {
+                if !include_text { continue }
+                var style = value.style
+                style.size *= text_scale
+                draw_text(
+                    address,
+                    width,
+                    height,
+                    value.value,
+                    Math.Vec2(
+                        value.position.x * text_scale - text_origin.x,
+                        value.position.y * text_scale - text_origin.y
+                    ),
+                    style
+                )
+            }
+        }
+    }
+    return Image.packed_rgba8(width, height, pixels)
+}
+
+func measure_text(value:str, style:TextStyle) TextMetrics {
+    if style.size <= 0.0 { panic("GFX.Canvas text size must be positive") }
+    return measure_font_text(value, style.size, style.weight, style.typeface())
+}
+
+func draw_covered(
+    address:uint,
+    width:int,
+    height:int,
+    brush:Brush,
+    coverage:Coverage
+) {
+    let bounds = coverage_bounds(coverage)
+    let minimum_x = Math.max(0.0, Math.floor(bounds.minimum.x)) as int
+    let minimum_y = Math.max(0.0, Math.floor(bounds.minimum.y)) as int
+    let maximum_x = Math.min(width as float, Math.ceil(bounds.maximum.x)) as int
+    let maximum_y = Math.min(height as float, Math.ceil(bounds.maximum.y)) as int
+    var y = minimum_y
+    while y < maximum_y {
+        var x = minimum_x
+        while x < maximum_x {
+            let amount = shape_coverage(coverage, x, y)
+            if amount > 0.0 {
+                let color = brush.color_at(Math.Vec2(x as float + 0.5, y as float + 0.5))
+                blend(address, (y * width + x) * 4, color, amount)
+            }
+            x++
+        }
+        y++
+    }
+}
+
+func shape_coverage(coverage:@Coverage, x:int, y:int) float {
+    var covered = 0
+    var sample_y = 0
+    while sample_y < 4 {
+        var sample_x = 0
+        while sample_x < 4 {
+            let point = Math.Vec2(
+                x as float + (sample_x as float + 0.5) * 0.25,
+                y as float + (sample_y as float + 0.5) * 0.25
+            )
+            if covers(coverage, point) { covered++ }
+            sample_x++
+        }
+        sample_y++
+    }
+    return covered as float / 16.0
+}
+
+func coverage_bounds(coverage:@Coverage) Bounds {
+    return match coverage {
+        rect_fill(value) => Bounds(minimum:value.position, maximum:value.position.add(value.size))
+        rect_stroke(value) => expanded_bounds(value.position, value.position.add(value.size), value.width * 0.5)
+        circle_fill(value) => expanded_bounds(value.center, value.center, value.radius)
+        circle_stroke(value) => expanded_bounds(value.center, value.center, value.radius + value.width * 0.5)
+        line_stroke(value) => expanded_bounds(value.start.minimum(value.end), value.start.maximum(value.end), value.width * 0.5)
+    }
+}
+
+func expanded_bounds(minimum:Math.Vec2, maximum:Math.Vec2, amount:float) Bounds {
+    return Bounds(
+        minimum:minimum.subtract(Math.Vec2(amount)),
+        maximum:maximum.add(Math.Vec2(amount))
+    )
+}
+
+func polyline_bounds(line:@Polyline, expansion:float) Bounds {
+    if line.points.count() == 0 { return Bounds(minimum:Math.Vec2(), maximum:Math.Vec2()) }
+    var minimum = line.points[0]
+    var maximum = line.points[0]
+    var index = 1
+    while index < line.points.count() {
+        minimum = minimum.minimum(line.points[index])
+        maximum = maximum.maximum(line.points[index])
+        index++
+    }
+    return expanded_bounds(minimum, maximum, expansion)
+}
+
+func covers(coverage:@Coverage, point:Math.Vec2) bool {
+    return match coverage {
+        rect_fill(value) => inside_rect(point, value.position, value.size, value.radius)
+        rect_stroke(value) => inside_rect_stroke(point, value)
+        circle_fill(value) => point.subtract(value.center).length_squared() <= value.radius * value.radius
+        circle_stroke(value) => inside_circle_stroke(point, value)
+        line_stroke(value) => segment_distance_squared(point, value.start, value.end) <= value.width * value.width * 0.25
+    }
+}
+
+func draw_path(
+    address:uint,
+    width:int,
+    height:int,
+    brush:Brush,
+    line:@Polyline,
+    radius:float,
+    filled:bool
+) {
+    if !filled {
+        draw_stroked_path(address, width, height, brush, line, radius)
+        return
+    }
+    let bounds = polyline_bounds(line, radius)
+    let minimum_x = Math.max(0.0, Math.floor(bounds.minimum.x)) as int
+    let minimum_y = Math.max(0.0, Math.floor(bounds.minimum.y)) as int
+    let maximum_x = Math.min(width as float, Math.ceil(bounds.maximum.x)) as int
+    let maximum_y = Math.min(height as float, Math.ceil(bounds.maximum.y)) as int
+    var y = minimum_y
+    while y < maximum_y {
+        var x = minimum_x
+        while x < maximum_x {
+            let amount = path_coverage(line, x, y, radius, filled)
+            if amount > 0.0 {
+                let color = brush.color_at(Math.Vec2(x as float + 0.5, y as float + 0.5))
+                blend(address, (y * width + x) * 4, color, amount)
+            }
+            x++
+        }
+        y++
+    }
+}
+
+func draw_stroked_path(
+    address:uint,
+    width:int,
+    height:int,
+    brush:Brush,
+    line:@Polyline,
+    radius:float
+) {
+    if line.points.count() < 2 { return }
+    var samples = packed_storage(width * height * 2)
+    let samples_address = C.address_bits(C.mutable_string_pointer(samples))
+    var segment_index = 1
+    while segment_index < line.points.count() {
+        let start = line.points[segment_index - 1]
+        let end = line.points[segment_index]
+        let minimum_x = Math.max(0.0, Math.floor(Math.min(start.x, end.x) - radius)) as int
+        let minimum_y = Math.max(0.0, Math.floor(Math.min(start.y, end.y) - radius)) as int
+        let maximum_x = Math.min(width as float, Math.ceil(Math.max(start.x, end.x) + radius)) as int
+        let maximum_y = Math.min(height as float, Math.ceil(Math.max(start.y, end.y) + radius)) as int
+        var y = minimum_y
+        while y < maximum_y {
+            var x = minimum_x
+            while x < maximum_x {
+                let sample_offset = (y * width + x) * 2
+                var covered = C.load<uint16>(samples_address, sample_offset as uint)
+                var sample_y = 0
+                while sample_y < 4 {
+                    var sample_x = 0
+                    while sample_x < 4 {
+                        let sample_index = sample_y * 4 + sample_x
+                        let bit = (1 as uint16) << sample_index
+                        if (covered & bit) == 0 && segment_distance_squared(
+                            Math.Vec2(
+                                x as float + (sample_x as float + 0.5) * 0.25,
+                                y as float + (sample_y as float + 0.5) * 0.25
+                            ),
+                            start,
+                            end
+                        ) <= radius * radius {
+                            covered = covered ^ bit
+                        }
+                        sample_x++
+                    }
+                    sample_y++
+                }
+                let stored = C.store<uint16>(samples_address, sample_offset as uint, covered)
+                x++
+            }
+            y++
+        }
+        segment_index++
+    }
+
+    let bounds = polyline_bounds(line, radius)
+    let minimum_x = Math.max(0.0, Math.floor(bounds.minimum.x)) as int
+    let minimum_y = Math.max(0.0, Math.floor(bounds.minimum.y)) as int
+    let maximum_x = Math.min(width as float, Math.ceil(bounds.maximum.x)) as int
+    let maximum_y = Math.min(height as float, Math.ceil(bounds.maximum.y)) as int
+    var y = minimum_y
+    while y < maximum_y {
+        var x = minimum_x
+        while x < maximum_x {
+            let covered = C.load<uint16>(samples_address, ((y * width + x) * 2) as uint)
+            if covered != 0 {
+                var count = 0
+                var sample_index = 0
+                while sample_index < 16 {
+                    if (covered & ((1 as uint16) << sample_index)) != 0 { count++ }
+                    sample_index++
+                }
+                let color = brush.color_at(Math.Vec2(x as float + 0.5, y as float + 0.5))
+                blend(address, (y * width + x) * 4, color, count as float / 16.0)
+            }
+            x++
+        }
+        y++
+    }
+}
+
+func path_coverage(line:@Polyline, x:int, y:int, radius:float, filled:bool) float {
+    var covered = 0
+    var sample_y = 0
+    while sample_y < 4 {
+        var sample_x = 0
+        while sample_x < 4 {
+            let point = Math.Vec2(
+                x as float + (sample_x as float + 0.5) * 0.25,
+                y as float + (sample_y as float + 0.5) * 0.25
+            )
+            if path_covers(line, point, radius, filled) { covered++ }
+            sample_x++
+        }
+        sample_y++
+    }
+    return covered as float / 16.0
+}
+
+func path_covers(line:@Polyline, point:Math.Vec2, radius:float, filled:bool) bool {
+    if filled { return inside_polygon(point, line.points) }
+    return near_polyline(point, line, radius)
+}
+
+func inside_circle_stroke(point:Math.Vec2, value:CircleStrokeCoverage) bool {
+    let half = value.width * 0.5
+    let distance_squared = point.subtract(value.center).length_squared()
+    let inner = Math.max(0.0, value.radius - half)
+    let outer = value.radius + half
+    return distance_squared >= inner * inner && distance_squared <= outer * outer
+}
+
+func inside_rect_stroke(point:Math.Vec2, value:RectStrokeCoverage) bool {
+    let half = value.width * 0.5
+    let outer_position = value.position.subtract(Math.Vec2(half))
+    let outer_size = value.size.add(Math.Vec2(value.width))
+    let outer = inside_rect(point, outer_position, outer_size, value.radius + half)
+    let inner_position = value.position.add(Math.Vec2(half))
+    let inner_size = value.size.subtract(Math.Vec2(value.width))
+    if inner_size.x <= 0.0 || inner_size.y <= 0.0 { return outer }
+    return outer && !inside_rect(point, inner_position, inner_size, Math.max(0.0, value.radius - half))
+}
+
+func inside_rect(point:Math.Vec2, position:Math.Vec2, size:Math.Vec2, radius:float) bool {
+    if point.x < position.x || point.y < position.y ||
+        point.x > position.x + size.x || point.y > position.y + size.y { return false }
+    let rounded = Math.min(Math.max(0.0, radius), Math.min(size.x, size.y) * 0.5)
+    if rounded <= 0.0 { return true }
+    let inner_left = position.x + rounded
+    let inner_right = position.x + size.x - rounded
+    let inner_top = position.y + rounded
+    let inner_bottom = position.y + size.y - rounded
+    if point.x >= inner_left && point.x <= inner_right { return true }
+    if point.y >= inner_top && point.y <= inner_bottom { return true }
+    var center_x = inner_right
+    var center_y = inner_bottom
+    if point.x < inner_left { center_x = inner_left }
+    if point.y < inner_top { center_y = inner_top }
+    let center = Math.Vec2(center_x, center_y)
+    return point.distance(center) <= rounded
+}
+
+func segment_distance_squared(point:Math.Vec2, start:Math.Vec2, end:Math.Vec2) float {
+    let segment_x = end.x - start.x
+    let segment_y = end.y - start.y
+    let length = segment_x * segment_x + segment_y * segment_y
+    let offset_x = point.x - start.x
+    let offset_y = point.y - start.y
+    if length <= 0.0 { return offset_x * offset_x + offset_y * offset_y }
+    let amount = Math.clamp(
+        (offset_x * segment_x + offset_y * segment_y) / length,
+        0.0,
+        1.0
+    )
+    let distance_x = point.x - (start.x + segment_x * amount)
+    let distance_y = point.y - (start.y + segment_y * amount)
+    return distance_x * distance_x + distance_y * distance_y
+}
+
+func curve_midpoint(a:Math.Vec2, b:Math.Vec2) Math.Vec2 {
+    return Math.Vec2((a.x + b.x) * 0.5, (a.y + b.y) * 0.5)
+}
+
+func round_curve_segments(radius:float, sweep:float) int {
+    let tolerance = 0.05
+    let cosine = Math.clamp(1.0 - tolerance / radius, -1.0, 1.0)
+    let maximum_step = 2.0 * Math.acos(cosine)
+    let required = Math.ceil(Math.abs(sweep) / maximum_step)
+    return Math.max(8.0, Math.min(512.0, required)) as int
+}
+
+func append_flattened_quadratic(
+    points:&Math.Vec2[],
+    start:Math.Vec2,
+    control:Math.Vec2,
+    end:Math.Vec2,
+    depth:int
+) {
+    let tolerance_squared = 0.04
+    if depth >= 12 || segment_distance_squared(control, start, end) <= tolerance_squared {
+        points.append(end)
+        return
+    }
+    let start_control = curve_midpoint(start, control)
+    let control_end = curve_midpoint(control, end)
+    let split = curve_midpoint(start_control, control_end)
+    append_flattened_quadratic(points, start, start_control, split, depth + 1)
+    append_flattened_quadratic(points, split, control_end, end, depth + 1)
+}
+
+func append_flattened_cubic(
+    points:&Math.Vec2[],
+    start:Math.Vec2,
+    control_a:Math.Vec2,
+    control_b:Math.Vec2,
+    end:Math.Vec2,
+    depth:int
+) {
+    let tolerance_squared = 0.04
+    let control_a_distance = segment_distance_squared(control_a, start, end)
+    let control_b_distance = segment_distance_squared(control_b, start, end)
+    if depth >= 12 || Math.max(control_a_distance, control_b_distance) <= tolerance_squared {
+        points.append(end)
+        return
+    }
+    let start_a = curve_midpoint(start, control_a)
+    let a_b = curve_midpoint(control_a, control_b)
+    let b_end = curve_midpoint(control_b, end)
+    let left_control = curve_midpoint(start_a, a_b)
+    let right_control = curve_midpoint(a_b, b_end)
+    let split = curve_midpoint(left_control, right_control)
+    append_flattened_cubic(points, start, start_a, left_control, split, depth + 1)
+    append_flattened_cubic(points, split, right_control, b_end, end, depth + 1)
+}
+
+func flatten(path:Path) Polyline {
+    var points:Math.Vec2[] = []
+    var current = Math.Vec2()
+    var first = Math.Vec2()
+    var has_current = false
+    var closed = false
+    for step in path.steps() {
+        match step {
+            moved(point) => {
+                current = point
+                first = point
+                has_current = true
+                points.append(point)
+            }
+            lined(point) => {
+                if !has_current { first = point; has_current = true }
+                current = point
+                points.append(point)
+            }
+            quadratic(curve) => {
+                if !has_current { current = curve.end; first = curve.end; has_current = true; points.append(curve.end) }
+                else {
+                    let start = current
+                    append_flattened_quadratic(points, start, curve.control, curve.end, 0)
+                    current = curve.end
+                }
+            }
+            cubic(curve) => {
+                if !has_current { current = curve.end; first = curve.end; has_current = true; points.append(curve.end) }
+                else {
+                    let start = current
+                    append_flattened_cubic(
+                        points,
+                        start,
+                        curve.control_a,
+                        curve.control_b,
+                        curve.end,
+                        0
+                    )
+                    current = curve.end
+                }
+            }
+            arc(curve) => {
+                let segments = round_curve_segments(curve.radius, curve.sweep)
+                var index = 1
+                while index <= segments {
+                    let angle = curve.start + curve.sweep * index as float / segments as float
+                    let point = curve.center.add(Math.Vec2(
+                        Math.cos(angle) * curve.radius,
+                        Math.sin(angle) * curve.radius
+                    ))
+                    points.append(point)
+                    current = point
+                    index++
+                }
+            }
+            close => {
+                if has_current && current.distance(first) > 0.0 { points.append(first) }
+                current = first
+                closed = true
+            }
+        }
+    }
+    return Polyline(points:points, closed:closed)
+}
+
+func inside_polygon(point:Math.Vec2, points:@Math.Vec2[]) bool {
+    if points.count() < 3 { return false }
+    var inside = false
+    var previous = points.count() - 1
+    var index = 0
+    while index < points.count() {
+        let a = points[index]
+        let b = points[previous]
+        if (a.y > point.y) != (b.y > point.y) &&
+            point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x { inside = !inside }
+        previous = index
+        index++
+    }
+    return inside
+}
+
+func near_polyline(point:Math.Vec2, line:@Polyline, radius:float) bool {
+    let radius_squared = radius * radius
+    var index = 1
+    while index < line.points.count() {
+        let start = line.points[index - 1]
+        let end = line.points[index]
+        if point.x >= Math.min(start.x, end.x) - radius &&
+            point.x <= Math.max(start.x, end.x) + radius &&
+            point.y >= Math.min(start.y, end.y) - radius &&
+            point.y <= Math.max(start.y, end.y) + radius &&
+            segment_distance_squared(point, start, end) <= radius_squared
+        {
+            return true
+        }
+        index++
+    }
+    if line.closed && line.points.count() > 2 {
+        return segment_distance_squared(point, line.points[line.points.count() - 1], line.points[0]) <= radius_squared
+    }
+    return false
+}
+
+func measure_font_text(value:str, size:float, weight:TextWeight, font:Font) TextMetrics {
+    let handle = cached_font(font, size, weight)
+    var measured_width:int32 = 0
+    var measured_height:int32 = 0
+    let compact = value
+    let measured = ttf_get_string_size(
+        C.pointer_bits(handle), C.pointer(compact), C.byte_count(compact) as C.Size,
+        C.mutable_pointer(measured_width), C.mutable_pointer(measured_height)
+    )
+    if measured == 0 { panic("GFX.Canvas could not measure text: " + font_error()) }
+    var lines = 1
+    for scalar in UTF8.scalars(value) { if scalar == 10 { lines++ } }
+    return TextMetrics(width:measured_width as float, height:measured_height as float, lines:lines)
+}
+
+func draw_font_text(
+    address:uint,
+    width:int,
+    height:int,
+    value:str,
+    position:Math.Vec2,
+    style:TextStyle,
+    font:Font
+) {
+    if value == "" { return }
+    let handle = cached_font(font, style.size, style.weight)
+    let compact = value
+    let rendered = C.address_bits(ttf_render_text_blended(
+        C.pointer_bits(handle), C.pointer(compact), C.byte_count(compact) as C.Size,
+        packed_color(style.color)
+    ))
+    if rendered == 0 as uint { panic("GFX.Canvas could not render text: " + font_error()) }
+
+    let converted = C.address_bits(sdl_convert_surface(C.pointer_bits(rendered), 0x1676_2004 as uint32))
+    sdl_destroy_surface(C.pointer_bits(rendered))
+    if converted == 0 as uint { panic("GFX.Canvas could not convert text pixels: " + font_error()) }
+    if sdl_lock_surface(C.pointer_bits(converted)) == 0 {
+        let detail = font_error()
+        sdl_destroy_surface(C.pointer_bits(converted))
+        panic("GFX.Canvas could not access text pixels: " + detail)
+    }
+
+    let source_width = C.load<int32>(converted, 8 as uint) as int
+    let source_height = C.load<int32>(converted, 12 as uint) as int
+    let source_pitch = C.load<int32>(converted, 16 as uint) as int
+    let source = C.load<uint>(converted, 24 as uint)
+    var origin_x = position.x
+    if style.alignment == TextAlignment.center { origin_x -= source_width as float * 0.5 }
+    if style.alignment == TextAlignment.end { origin_x -= source_width as float }
+    let destination_x = Math.floor(origin_x) as int
+    let destination_y = Math.floor(position.y) as int
+    var source_y = 0
+    while source_y < source_height {
+        let target_y = destination_y + source_y
+        if target_y >= 0 && target_y < height {
+            var source_x = 0
+            while source_x < source_width {
+                let target_x = destination_x + source_x
+                if target_x >= 0 && target_x < width {
+                    let offset = source_y * source_pitch + source_x * 4
+                    let alpha = C.load<uint8>(source, (offset + 3) as uint)
+                    if alpha > 0 {
+                        blend(
+                            address, (target_y * width + target_x) * 4,
+                            Color.bytes(
+                                C.load<uint8>(source, offset as uint),
+                                C.load<uint8>(source, (offset + 1) as uint),
+                                C.load<uint8>(source, (offset + 2) as uint),
+                                alpha
+                            ),
+                            1.0
+                        )
+                    }
+                }
+                source_x++
+            }
+        }
+        source_y++
+    }
+    sdl_unlock_surface(C.pointer_bits(converted))
+    sdl_destroy_surface(C.pointer_bits(converted))
+}
+
+func open_uncached_font(font:Font, size:float, weight:TextWeight) uint {
+    if ttf_was_init() == 0 && ttf_init() == 0 {
+        panic("GFX.Canvas could not initialize text rendering: " + font_error())
+    }
+    if let path = font.path() {
+        let handle = C.address_bits(ttf_open_font(C.terminated_pointer(path), size as float32))
+        if handle == 0 as uint { panic("GFX.Canvas could not open font '" + path + "': " + font_error()) }
+        apply_font_weight(handle, weight)
+        return handle
+    }
+    let stream = C.address_bits(sdl_io_from_const_memory(
+        C.pointer(font.packed_data()), font.byte_count() as C.Size
+    ))
+    if stream == 0 as uint { panic("GFX.Canvas could not open font data: " + font_error()) }
+    let handle = C.address_bits(ttf_open_font_io(C.pointer_bits(stream), 1, size as float32))
+    if handle == 0 as uint { panic("GFX.Canvas could not open font: " + font_error()) }
+    apply_font_weight(handle, weight)
+    return handle
+}
+
+func cached_font(font:Font, size:float, weight:TextWeight) uint {
+    let key = font_weight_key(weight)
+    if let handle = font.cached_face(size, key) { return handle }
+    let handle = open_uncached_font(font, size, weight)
+    if let evicted = font.retain_face(size, key, handle) {
+        ttf_close_font(C.pointer_bits(evicted))
+    }
+    return handle
+}
+
+func font_weight_key(weight:TextWeight) int {
+    if weight == TextWeight.bold { return 1 }
+    return 0
+}
+
+func apply_font_weight(handle:uint, weight:TextWeight) {
+    var style = 0 as uint32
+    if weight == TextWeight.bold { style = 1 as uint32 }
+    ttf_set_font_style(C.pointer_bits(handle), style)
+}
+
+func packed_color(value:Color) uint32 {
+    return color_channel(value.r) as uint32 +
+        (color_channel(value.g) as uint32 << 8) +
+        (color_channel(value.b) as uint32 << 16) +
+        (color_channel(value.a) as uint32 << 24)
+}
+
+func font_error() str {
+    let address = C.address_bits(sdl_get_error())
+    if address == 0 as uint { return "unknown SDL_ttf error" }
+    var bytes:uint8[] = []
+    var index = 0
+    while index < 4096 {
+        let byte = C.load<uint8>(address, index as uint)
+        if byte == 0 { return C.string(@bytes[0:bytes.count()]) }
+        bytes.append(byte)
+        index++
+    }
+    return "invalid SDL_ttf error"
+}
+
+func draw_text(address:uint, width:int, height:int, value:str, position:Math.Vec2, style:TextStyle) {
+    draw_font_text(address, width, height, value, position, style, style.typeface())
+}
+
+func blend(address:uint, offset:int, color:Color, coverage:float) {
+    let source_alpha = Math.clamp(color.a * coverage, 0.0, 1.0)
+    let destination_alpha = read_byte(address, offset + 3) as float / 255.0
+    let output_alpha = source_alpha + destination_alpha * (1.0 - source_alpha)
+    if output_alpha <= 0.0 {
+        write_byte(address, offset, 0); write_byte(address, offset + 1, 0)
+        write_byte(address, offset + 2, 0); write_byte(address, offset + 3, 0)
+        return
+    }
+    write_byte(address, offset, color_channel((color.r * source_alpha + read_byte(address, offset) as float / 255.0 * destination_alpha * (1.0 - source_alpha)) / output_alpha))
+    write_byte(address, offset + 1, color_channel((color.g * source_alpha + read_byte(address, offset + 1) as float / 255.0 * destination_alpha * (1.0 - source_alpha)) / output_alpha))
+    write_byte(address, offset + 2, color_channel((color.b * source_alpha + read_byte(address, offset + 2) as float / 255.0 * destination_alpha * (1.0 - source_alpha)) / output_alpha))
+    write_byte(address, offset + 3, color_channel(output_alpha))
+}
+
+func read_byte(address:uint, offset:int) uint8 {
+    return C.load<uint8>(address, offset as uint)
+}
+
+func write_byte(address:uint, offset:int, value:uint8) {
+    let stored = C.store<uint8>(address, offset as uint, value)
+}
+
+func color_channel(value:float) uint8 {
+    return Math.round(Math.clamp(value, 0.0, 1.0) * 255.0) as uint8
+}
+
+let ttf_init = C.function<func() int32>(library:Boundary.SDL3_ttf, name:"TTF_Init")
+let ttf_was_init = C.function<func() int32>(library:Boundary.SDL3_ttf, name:"TTF_WasInit")
+let ttf_open_font = C.function<func(C.Pointer<uint8>, float32) C.Pointer<uint8> >(library:Boundary.SDL3_ttf, name:"TTF_OpenFont")
+let ttf_open_font_io = C.function<func(C.Pointer<uint8>, int32, float32) C.Pointer<uint8> >(library:Boundary.SDL3_ttf, name:"TTF_OpenFontIO")
+let ttf_close_font = C.function<func(C.Pointer<uint8>) void>(library:Boundary.SDL3_ttf, name:"TTF_CloseFont")
+let ttf_set_font_style = C.function<func(C.Pointer<uint8>, uint32) void>(library:Boundary.SDL3_ttf, name:"TTF_SetFontStyle")
+let ttf_get_string_size = C.function<func(C.Pointer<uint8>, C.Pointer<uint8>, C.Size, C.MutablePointer<int32>, C.MutablePointer<int32>) int32>(library:Boundary.SDL3_ttf, name:"TTF_GetStringSize")
+let ttf_render_text_blended = C.function<func(C.Pointer<uint8>, C.Pointer<uint8>, C.Size, uint32) C.Pointer<uint8> >(library:Boundary.SDL3_ttf, name:"TTF_RenderText_Blended")
+let sdl_io_from_const_memory = C.function<func(C.Pointer<uint8>, C.Size) C.Pointer<uint8> >(library:Boundary.SDL3, name:"SDL_IOFromConstMem")
+let sdl_convert_surface = C.function<func(C.Pointer<uint8>, uint32) C.Pointer<uint8> >(library:Boundary.SDL3, name:"SDL_ConvertSurface")
+let sdl_lock_surface = C.function<func(C.Pointer<uint8>) int32>(library:Boundary.SDL3, name:"SDL_LockSurface")
+let sdl_unlock_surface = C.function<func(C.Pointer<uint8>) void>(library:Boundary.SDL3, name:"SDL_UnlockSurface")
+let sdl_destroy_surface = C.function<func(C.Pointer<uint8>) void>(library:Boundary.SDL3, name:"SDL_DestroySurface")
+let sdl_get_error = C.function<func() C.Pointer<uint8> >(library:Boundary.SDL3, name:"SDL_GetError")

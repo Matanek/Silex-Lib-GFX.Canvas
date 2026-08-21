@@ -1,0 +1,688 @@
+use GFX.Color
+use GFX.Canvas.Command
+use GFX.Canvas.Rasterizer
+use GFX.Canvas.Styles.Brush
+use GFX.Canvas.Styles.Stroke
+use GFX.Canvas.Styles.StrokeCap
+use GFX.Canvas.Styles.StrokeJoin
+use GFX.Canvas.Geometry.Mesh
+use GFX.Canvas.Geometry.Vertex
+use STD.Math
+
+struct StrokeCapShape {
+    let center:Math.Vec2
+    let a:Math.Vec2
+    let b:Math.Vec2
+    let outward:Math.Vec2
+    let half:float
+    let cap:StrokeCap
+}
+
+struct AnalyticQuad {
+    let center:Math.Vec2
+    let axis:Math.Vec2
+    let normal:Math.Vec2
+    let extent:Math.Vec2
+    let shape:Math.Vec3
+    let mode:float
+}
+
+func geometry(commands:@Command[]) Mesh {
+    var vertices:Vertex[] = []
+    var indices:uint32[] = []
+    for command in commands {
+        match command {
+            fill_rect(value) => {
+                append_analytic_rect(vertices, indices, value.shape.position, value.shape.size,
+                    value.shape.radius, 0.0, value.style.brush())
+            }
+            stroke_rect(value) => {
+                append_analytic_rect(vertices, indices, value.shape.position, value.shape.size,
+                    value.shape.radius, value.style.width, value.style.brush())
+            }
+            fill_circle(value) => {
+                append_analytic_circle(vertices, indices, value.shape.center, value.shape.radius,
+                    0.0, value.style.brush())
+            }
+            stroke_circle(value) => {
+                append_analytic_circle(vertices, indices, value.shape.center, value.shape.radius,
+                    value.style.width, value.style.brush())
+            }
+            stroke_line(value) => {
+                let points:Math.Vec2[] = [value.shape.start, value.shape.end]
+                append_stroke(vertices, indices, points, false, value.style)
+            }
+            fill_path(value) => {
+                let line = Rasterizer.flatten(value.shape)
+                append_polygon(vertices, indices, line.points, value.style.brush())
+            }
+            stroke_path(value) => {
+                let line = Rasterizer.flatten(value.shape)
+                append_stroke(vertices, indices, line.points, line.closed, value.style)
+            }
+            text(value) => {}
+        }
+    }
+    return Mesh(vertices, indices)
+}
+
+func append_analytic_rect(
+    vertices:&Vertex[], indices:&uint32[], position:Math.Vec2, size:Math.Vec2,
+    radius:float, stroke:float, brush:Brush
+) {
+    let center = position.add(size.multiply(0.5))
+    let half = size.multiply(0.5)
+    let rounded = Math.min(Math.max(0.0, radius), Math.min(half.x, half.y))
+    let expansion = stroke * 0.5 + 1.0
+    append_analytic_quad(vertices, indices, AnalyticQuad(
+        center:center, axis:Math.Vec2(1.0, 0.0), normal:Math.Vec2(0.0, 1.0),
+        extent:Math.Vec2(half.x + expansion, half.y + expansion),
+        shape:Math.Vec3(half.x, half.y, rounded), mode:stroke
+    ), brush)
+}
+
+func append_analytic_circle(
+    vertices:&Vertex[], indices:&uint32[], center:Math.Vec2, radius:float,
+    stroke:float, brush:Brush
+) {
+    let expansion = stroke * 0.5 + 1.0
+    append_analytic_quad(vertices, indices, AnalyticQuad(
+        center:center, axis:Math.Vec2(1.0, 0.0), normal:Math.Vec2(0.0, 1.0),
+        extent:Math.Vec2(radius + expansion),
+        shape:Math.Vec3(radius, radius, -1.0), mode:stroke
+    ), brush)
+}
+
+func append_analytic_quad(
+    vertices:&Vertex[], indices:&uint32[], quad:AnalyticQuad, brush:Brush
+) {
+    let locals:Math.Vec2[] = [
+        Math.Vec2(-quad.extent.x, -quad.extent.y), Math.Vec2(quad.extent.x, -quad.extent.y),
+        Math.Vec2(quad.extent.x, quad.extent.y), Math.Vec2(-quad.extent.x, quad.extent.y)
+    ]
+    let order:int[] = [0, 1, 2, 0, 2, 3]
+    for corner in order {
+        let coordinate = locals[corner]
+        let point = quad.center.add(quad.axis.multiply(coordinate.x)).add(quad.normal.multiply(coordinate.y))
+        let base = vertices.count() as uint32
+        vertices.append(Vertex(
+            position:Math.Vec3(point.x, point.y, quad.mode),
+            normal:quad.shape,
+            uv:coordinate,
+            color:brush.color_at(point)
+        ))
+        indices.append(base)
+    }
+}
+
+func rounded_rect_points(position:Math.Vec2, size:Math.Vec2, radius:float) Math.Vec2[] {
+    let rounded = Math.min(Math.max(0.0, radius), Math.min(size.x, size.y) * 0.5)
+    if rounded <= 0.0 {
+        return [
+            position,
+            position.add(Math.Vec2(size.x, 0.0)),
+            position.add(size),
+            position.add(Math.Vec2(0.0, size.y))
+        ]
+    }
+    var points:Math.Vec2[] = []
+    append_arc_points(points, position.add(Math.Vec2(size.x - rounded, rounded)), rounded, -Math.pi() * 0.5, Math.pi() * 0.5, 6, true)
+    append_arc_points(points, position.add(Math.Vec2(size.x - rounded, size.y - rounded)), rounded, 0.0, Math.pi() * 0.5, 6, true)
+    append_arc_points(points, position.add(Math.Vec2(rounded, size.y - rounded)), rounded, Math.pi() * 0.5, Math.pi() * 0.5, 6, true)
+    append_arc_points(points, position.add(Math.Vec2(rounded, rounded)), rounded, Math.pi(), Math.pi() * 0.5, 6, true)
+    return points
+}
+
+func ellipse_points(center:Math.Vec2, radii:Math.Vec2, segments:int) Math.Vec2[] {
+    var points:Math.Vec2[] = []
+    var index = 0
+    while index < segments {
+        let angle = Math.pi() * 2.0 * index as float / segments as float
+        points.append(center.add(Math.Vec2(
+            Math.cos(angle) * radii.x,
+            Math.sin(angle) * radii.y
+        )))
+        index++
+    }
+    return points
+}
+
+func append_arc_points(
+    points:&Math.Vec2[],
+    center:Math.Vec2,
+    radius:float,
+    start:float,
+    sweep:float,
+    segments:int,
+    omit_last:bool
+) {
+    var count = segments
+    if !omit_last { count++ }
+    var index = 0
+    while index < count {
+        let angle = start + sweep * index as float / segments as float
+        points.append(center.add(Math.Vec2(Math.cos(angle) * radius, Math.sin(angle) * radius)))
+        index++
+    }
+}
+
+func append_convex(vertices:&Vertex[], indices:&uint32[], points:@Math.Vec2[], brush:Brush) {
+    if points.count() < 3 { return }
+    var index = 1
+    while index + 1 < points.count() {
+        append_triangle(vertices, indices, points[0], points[index], points[index + 1], brush)
+        index++
+    }
+    append_fringe(vertices, indices, points, brush)
+}
+
+func append_polygon(vertices:&Vertex[], indices:&uint32[], source:@Math.Vec2[], brush:Brush) {
+    let points = without_duplicate_end(source)
+    if points.count() < 3 { return }
+    var remaining:int[] = []
+    var index = 0
+    while index < points.count() { remaining.append(index); index++ }
+    let orientation = polygon_area(points)
+    var guard = 0
+    while remaining.count() > 2 && guard < points.count() * points.count() {
+        var clipped = false
+        var cursor = 0
+        while cursor < remaining.count() {
+            let previous = remaining[(cursor + remaining.count() - 1) % remaining.count()]
+            let current = remaining[cursor]
+            let next = remaining[(cursor + 1) % remaining.count()]
+            if is_ear(points, remaining, previous, current, next, orientation) {
+                append_triangle(vertices, indices, points[previous], points[current], points[next], brush)
+                remaining = without_index(remaining, cursor)
+                clipped = true
+                break
+            }
+            cursor++
+        }
+        if !clipped { break }
+        guard++
+    }
+    append_fringe(vertices, indices, points, brush)
+}
+
+func append_stroke(
+    vertices:&Vertex[],
+    indices:&uint32[],
+    source:@Math.Vec2[],
+    closed:bool,
+    style:Stroke
+) {
+    let points = stroke_points(source)
+    if points.count() < 2 { return }
+    let brush = style.brush()
+    if closed {
+        append_closed_stroke(vertices, indices, points, style, brush)
+        return
+    }
+    let half = style.width * 0.5
+    var left:Math.Vec2[] = []
+    var right:Math.Vec2[] = []
+    var left_fringe:Math.Vec2[] = []
+    var right_fringe:Math.Vec2[] = []
+    var index = 0
+    while index < points.count() {
+        let offset = open_stroke_offset(points, index, half, style.join)
+        let offset_length = Math.sqrt(offset.x * offset.x + offset.y * offset.y)
+        var fringe_offset = Math.Vec2(0.0)
+        if offset_length > 0.000001 {
+            let fringe_scale = (offset_length + 1.0) / offset_length
+            fringe_offset = Math.Vec2(
+                offset.x * fringe_scale,
+                offset.y * fringe_scale
+            )
+        }
+        let point = points[index]
+        left.append(Math.Vec2(point.x + offset.x, point.y + offset.y))
+        right.append(Math.Vec2(point.x - offset.x, point.y - offset.y))
+        left_fringe.append(Math.Vec2(
+            point.x + fringe_offset.x,
+            point.y + fringe_offset.y
+        ))
+        right_fringe.append(Math.Vec2(
+            point.x - fringe_offset.x,
+            point.y - fringe_offset.y
+        ))
+        index++
+    }
+
+    index = 0
+    while index + 1 < points.count() {
+        let next = index + 1
+        append_triangle(vertices, indices, left[index], left[next], right[next], brush)
+        append_triangle(vertices, indices, left[index], right[next], right[index], brush)
+        append_colored_triangle(
+            vertices, indices,
+            left[index], brush.color_at(left[index]),
+            left_fringe[next], faded_color(brush, left_fringe[next]),
+            left_fringe[index], faded_color(brush, left_fringe[index])
+        )
+        append_colored_triangle(
+            vertices, indices,
+            left[index], brush.color_at(left[index]),
+            left[next], brush.color_at(left[next]),
+            left_fringe[next], faded_color(brush, left_fringe[next])
+        )
+        append_colored_triangle(
+            vertices, indices,
+            right[index], brush.color_at(right[index]),
+            right_fringe[index], faded_color(brush, right_fringe[index]),
+            right_fringe[next], faded_color(brush, right_fringe[next])
+        )
+        append_colored_triangle(
+            vertices, indices,
+            right[index], brush.color_at(right[index]),
+            right_fringe[next], faded_color(brush, right_fringe[next]),
+            right[next], brush.color_at(right[next])
+        )
+        index++
+    }
+
+    let last = points.count() - 1
+    let start_outward = points[0].subtract(points[1]).normalized()
+    let end_outward = points[last].subtract(points[last - 1]).normalized()
+    append_stroke_cap(vertices, indices, StrokeCapShape(
+        center:points[0], a:left[0], b:right[0], outward:start_outward,
+        half:half, cap:style.cap
+    ), brush)
+    append_stroke_cap(vertices, indices, StrokeCapShape(
+        center:points[last], a:right[last], b:left[last], outward:end_outward,
+        half:half, cap:style.cap
+    ), brush)
+}
+
+func open_stroke_offset(
+    points:@Math.Vec2[],
+    index:int,
+    half:float,
+    join:StrokeJoin
+) Math.Vec2 {
+    if index == 0 {
+        let first = points[0]
+        let second = points[1]
+        let normal = left_normal(Math.Vec2(second.x - first.x, second.y - first.y))
+        return Math.Vec2(normal.x * half, normal.y * half)
+    }
+    if index + 1 == points.count() {
+        let previous = points[index - 1]
+        let current = points[index]
+        let normal = left_normal(Math.Vec2(
+            current.x - previous.x,
+            current.y - previous.y
+        ))
+        return Math.Vec2(normal.x * half, normal.y * half)
+    }
+    let previous = points[index - 1]
+    let current = points[index]
+    let next = points[index + 1]
+    let before = left_normal(Math.Vec2(
+        current.x - previous.x,
+        current.y - previous.y
+    ))
+    let after = left_normal(Math.Vec2(
+        next.x - current.x,
+        next.y - current.y
+    ))
+    let miter_x = before.x + after.x
+    let miter_y = before.y + after.y
+    let miter_length_squared = miter_x * miter_x + miter_y * miter_y
+    if miter_length_squared <= 0.000001 {
+        return Math.Vec2(after.x * half, after.y * half)
+    }
+    let inverse_miter_length = 1.0 / Math.sqrt(miter_length_squared)
+    let normalized_x = miter_x * inverse_miter_length
+    let normalized_y = miter_y * inverse_miter_length
+    let alignment = normalized_x * after.x + normalized_y * after.y
+    if alignment <= 0.2 {
+        return Math.Vec2(after.x * half, after.y * half)
+    }
+    var limit = 4.0
+    if join == StrokeJoin.bevel { limit = 1.0 }
+    if join == StrokeJoin.round { limit = 1.08 }
+    let maximum_distance = half * limit
+    var distance = half / alignment
+    if distance > maximum_distance { distance = maximum_distance }
+    return Math.Vec2(normalized_x * distance, normalized_y * distance)
+}
+
+func left_normal(direction:Math.Vec2) Math.Vec2 {
+    let length_squared = direction.x * direction.x + direction.y * direction.y
+    if length_squared <= 0.000001 { return Math.Vec2(0.0) }
+    let inverse_length = 1.0 / Math.sqrt(length_squared)
+    return Math.Vec2(-direction.y * inverse_length, direction.x * inverse_length)
+}
+
+func append_stroke_cap(
+    vertices:&Vertex[],
+    indices:&uint32[],
+    shape:StrokeCapShape,
+    brush:Brush
+) {
+    if shape.cap == StrokeCap.round {
+        append_round_cap(vertices, indices, shape.center, shape.a, shape.outward, shape.half, brush)
+        return
+    }
+    var edge_a = shape.a
+    var edge_b = shape.b
+    if shape.cap == StrokeCap.square {
+        edge_a = edge_a.add(shape.outward.multiply(shape.half))
+        edge_b = edge_b.add(shape.outward.multiply(shape.half))
+        append_triangle(vertices, indices, shape.a, shape.b, edge_b, brush)
+        append_triangle(vertices, indices, shape.a, edge_b, edge_a, brush)
+    }
+    let faded_a = edge_a.add(shape.outward)
+    let faded_b = edge_b.add(shape.outward)
+    append_colored_triangle(
+        vertices, indices,
+        edge_a, brush.color_at(edge_a),
+        edge_b, brush.color_at(edge_b),
+        faded_b, faded_color(brush, faded_b)
+    )
+    append_colored_triangle(
+        vertices, indices,
+        edge_a, brush.color_at(edge_a),
+        faded_b, faded_color(brush, faded_b),
+        faded_a, faded_color(brush, faded_a)
+    )
+}
+
+func append_round_cap(
+    vertices:&Vertex[],
+    indices:&uint32[],
+    center:Math.Vec2,
+    start:Math.Vec2,
+    outward:Math.Vec2,
+    half:float,
+    brush:Brush
+) {
+    let tangent = start.subtract(center).normalized()
+    let segments = Math.max(8.0, Math.ceil(half * 1.5)) as int
+    var previous = start
+    var previous_fringe = center.add(tangent.multiply(half + 1.0))
+    var index = 1
+    while index <= segments {
+        let angle = Math.pi() * index as float / segments as float
+        let direction = tangent.multiply(Math.cos(angle)).add(outward.multiply(Math.sin(angle)))
+        let current = center.add(direction.multiply(half))
+        let current_fringe = center.add(direction.multiply(half + 1.0))
+        append_triangle(vertices, indices, center, previous, current, brush)
+        append_colored_triangle(
+            vertices, indices,
+            previous, brush.color_at(previous),
+            previous_fringe, faded_color(brush, previous_fringe),
+            current_fringe, faded_color(brush, current_fringe)
+        )
+        append_colored_triangle(
+            vertices, indices,
+            previous, brush.color_at(previous),
+            current_fringe, faded_color(brush, current_fringe),
+            current, brush.color_at(current)
+        )
+        previous = current
+        previous_fringe = current_fringe
+        index++
+    }
+}
+
+func stroke_points(source:@Math.Vec2[]) Math.Vec2[] {
+    var result:Math.Vec2[] = []
+    for point in source {
+        if result.count() == 0 || !result[result.count() - 1].nearly_equal(point, 0.0001) {
+            result.append(point)
+        }
+    }
+    if result.count() > 1 && result[0].nearly_equal(result[result.count() - 1], 0.0001) {
+        result = result[0:result.count() - 1]
+    }
+    return result
+}
+
+func append_closed_stroke(
+    vertices:&Vertex[],
+    indices:&uint32[],
+    points:@Math.Vec2[],
+    style:Stroke,
+    brush:Brush
+) {
+    if points.count() < 3 { return }
+    let half = style.width * 0.5
+    let orientation = polygon_area(points)
+    var outer:Math.Vec2[] = []
+    var inner:Math.Vec2[] = []
+    var outer_fringe:Math.Vec2[] = []
+    var inner_fringe:Math.Vec2[] = []
+    var index = 0
+    while index < points.count() {
+        let previous = points[(index + points.count() - 1) % points.count()]
+        let current = points[index]
+        let next = points[(index + 1) % points.count()]
+        let before = outward_normal(current.subtract(previous), orientation)
+        let after = outward_normal(next.subtract(current), orientation)
+        let sum_x = before.x + after.x
+        let sum_y = before.y + after.y
+        let sum_length_squared = sum_x * sum_x + sum_y * sum_y
+        var direction_x = before.x
+        var direction_y = before.y
+        if sum_length_squared > 0.000001 {
+            let inverse_sum_length = 1.0 / Math.sqrt(sum_length_squared)
+            direction_x = sum_x * inverse_sum_length
+            direction_y = sum_y * inverse_sum_length
+        }
+        let alignment = direction_x * after.x + direction_y * after.y
+        var distance = half
+        if alignment > 0.2 { distance = half / alignment }
+        var limit = 4.0
+        if style.join == StrokeJoin.bevel { limit = 1.0 }
+        if style.join == StrokeJoin.round { limit = 1.08 }
+        let maximum_distance = half * limit
+        if distance > maximum_distance { distance = maximum_distance }
+        let fringe_distance = distance + 1.0
+        let offset_x = direction_x * distance
+        let offset_y = direction_y * distance
+        let fringe_x = direction_x * fringe_distance
+        let fringe_y = direction_y * fringe_distance
+        outer.append(Math.Vec2(current.x + offset_x, current.y + offset_y))
+        inner.append(Math.Vec2(current.x - offset_x, current.y - offset_y))
+        outer_fringe.append(Math.Vec2(current.x + fringe_x, current.y + fringe_y))
+        inner_fringe.append(Math.Vec2(current.x - fringe_x, current.y - fringe_y))
+        index++
+    }
+    index = 0
+    while index < points.count() {
+        let next = (index + 1) % points.count()
+        append_colored_triangle(
+            vertices, indices,
+            outer[index], brush.color_at(outer[index]),
+            outer[next], brush.color_at(outer[next]),
+            inner[next], brush.color_at(inner[next])
+        )
+        append_colored_triangle(
+            vertices, indices,
+            outer[index], brush.color_at(outer[index]),
+            inner[next], brush.color_at(inner[next]),
+            inner[index], brush.color_at(inner[index])
+        )
+        append_colored_triangle(
+            vertices, indices,
+            outer[index], brush.color_at(outer[index]),
+            outer_fringe[next], faded_color(brush, outer_fringe[next]),
+            outer_fringe[index], faded_color(brush, outer_fringe[index])
+        )
+        append_colored_triangle(
+            vertices, indices,
+            outer[index], brush.color_at(outer[index]),
+            outer[next], brush.color_at(outer[next]),
+            outer_fringe[next], faded_color(brush, outer_fringe[next])
+        )
+        append_colored_triangle(
+            vertices, indices,
+            inner[index], brush.color_at(inner[index]),
+            inner_fringe[index], faded_color(brush, inner_fringe[index]),
+            inner_fringe[next], faded_color(brush, inner_fringe[next])
+        )
+        append_colored_triangle(
+            vertices, indices,
+            inner[index], brush.color_at(inner[index]),
+            inner_fringe[next], faded_color(brush, inner_fringe[next]),
+            inner[next], brush.color_at(inner[next])
+        )
+        index++
+    }
+}
+
+func append_convex_solid(vertices:&Vertex[], indices:&uint32[], points:@Math.Vec2[], brush:Brush) {
+    if points.count() < 3 { return }
+    var index = 1
+    while index + 1 < points.count() {
+        append_triangle(vertices, indices, points[0], points[index], points[index + 1], brush)
+        index++
+    }
+}
+
+func append_fringe(vertices:&Vertex[], indices:&uint32[], source:@Math.Vec2[], brush:Brush) {
+    let points = without_duplicate_end(source)
+    if points.count() < 3 { return }
+    let orientation = polygon_area(points)
+    var outer:Math.Vec2[] = []
+    var index = 0
+    while index < points.count() {
+        let previous = points[(index + points.count() - 1) % points.count()]
+        let current = points[index]
+        let next = points[(index + 1) % points.count()]
+        let before = outward_normal(current.subtract(previous), orientation)
+        let after = outward_normal(next.subtract(current), orientation)
+        var direction = before.add(after)
+        if direction.length_squared() <= 0.000001 { direction = before }
+        outer.append(current.add(direction.normalized()))
+        index++
+    }
+    index = 0
+    while index < points.count() {
+        let next = (index + 1) % points.count()
+        append_colored_triangle(
+            vertices, indices,
+            points[index], brush.color_at(points[index]),
+            points[next], brush.color_at(points[next]),
+            outer[next], faded_color(brush, outer[next])
+        )
+        append_colored_triangle(
+            vertices, indices,
+            points[index], brush.color_at(points[index]),
+            outer[next], faded_color(brush, outer[next]),
+            outer[index], faded_color(brush, outer[index])
+        )
+        index++
+    }
+}
+
+func outward_normal(direction:Math.Vec2, orientation:float) Math.Vec2 {
+    if orientation >= 0.0 { return Math.Vec2(direction.y, -direction.x).normalized() }
+    return Math.Vec2(-direction.y, direction.x).normalized()
+}
+
+func append_triangle(
+    vertices:&Vertex[],
+    indices:&uint32[],
+    a:Math.Vec2,
+    b:Math.Vec2,
+    c:Math.Vec2,
+    brush:Brush
+) {
+    append_colored_triangle(
+        vertices, indices,
+        a, brush.color_at(a),
+        b, brush.color_at(b),
+        c, brush.color_at(c)
+    )
+}
+
+func faded_color(brush:Brush, position:Math.Vec2) Color {
+    let color = brush.color_at(position)
+    return Color(r:color.r, g:color.g, b:color.b, a:0.0)
+}
+
+func append_colored_triangle(
+    vertices:&Vertex[],
+    indices:&uint32[],
+    a:Math.Vec2,
+    color_a:Color,
+    b:Math.Vec2,
+    color_b:Color,
+    c:Math.Vec2,
+    color_c:Color
+) {
+    let base = vertices.count() as uint32
+    vertices.append(Vertex(position:Math.Vec3(a.x, a.y, -1.0), color:color_a))
+    vertices.append(Vertex(position:Math.Vec3(b.x, b.y, -1.0), color:color_b))
+    vertices.append(Vertex(position:Math.Vec3(c.x, c.y, -1.0), color:color_c))
+    indices.append(base)
+    indices.append(base + 1)
+    indices.append(base + 2)
+}
+
+func without_duplicate_end(source:@Math.Vec2[]) Math.Vec2[] {
+    var count = source.count()
+    if count > 1 && source[0].distance(source[count - 1]) <= 0.0001 { count-- }
+    var result:Math.Vec2[] = []
+    var index = 0
+    while index < count { result.append(source[index]); index++ }
+    return result
+}
+
+func polygon_area(points:@Math.Vec2[]) float {
+    var area = 0.0
+    var index = 0
+    while index < points.count() {
+        let next = (index + 1) % points.count()
+        area += points[index].x * points[next].y - points[next].x * points[index].y
+        index++
+    }
+    return area * 0.5
+}
+
+func is_ear(
+    points:@Math.Vec2[],
+    remaining:@int[],
+    previous:int,
+    current:int,
+    next:int,
+    orientation:float
+) bool {
+    let cross = triangle_cross(points[previous], points[current], points[next])
+    if orientation >= 0.0 && cross <= 0.0 { return false }
+    if orientation < 0.0 && cross >= 0.0 { return false }
+    for candidate in remaining {
+        if candidate != previous && candidate != current && candidate != next &&
+            point_in_triangle(points[candidate], points[previous], points[current], points[next]) {
+            return false
+        }
+    }
+    return true
+}
+
+func triangle_cross(a:Math.Vec2, b:Math.Vec2, c:Math.Vec2) float {
+    return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+}
+
+func point_in_triangle(point:Math.Vec2, a:Math.Vec2, b:Math.Vec2, c:Math.Vec2) bool {
+    let ab = triangle_cross(a, b, point)
+    let bc = triangle_cross(b, c, point)
+    let ca = triangle_cross(c, a, point)
+    let negative = ab < 0.0 || bc < 0.0 || ca < 0.0
+    let positive = ab > 0.0 || bc > 0.0 || ca > 0.0
+    return !(negative && positive)
+}
+
+func without_index(source:@int[], removed:int) int[] {
+    var result:int[] = []
+    var index = 0
+    while index < source.count() {
+        if index != removed { result.append(source[index]) }
+        index++
+    }
+    return result
+}

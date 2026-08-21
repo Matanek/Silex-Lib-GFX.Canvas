@@ -1,0 +1,29 @@
+use GFX.Color
+use GFX.Canvas.Canvas.Canvas
+use GFX.Canvas.Canvas.Painter
+use GFX.Canvas.Shapes.Circle
+use GFX.Canvas.Shapes.Rect
+use GFX.Canvas.Styles.Fill
+use GFX.Canvas.Styles.Stroke
+use STD.Math
+
+test "paint and clear a canvas without SDL or a renderer" {
+    var canvas = Canvas()
+    canvas.paint(func(painter:&Painter) {
+        painter.fill(
+            Rect(Math.Vec2(), Math.Vec2(20.0, 10.0)),
+            Fill.solid(Color.red_500())
+        )
+        painter.stroke(
+            Circle(Math.Vec2(10.0), 4.0),
+            Stroke(Color.white(), 2.0)
+        )
+    })
+
+    var commands = canvas.commands()
+    assert(commands.count() == 2)
+    assert(canvas.revision() == 3)
+    canvas.clear()
+    assert(canvas.is_empty())
+    assert(canvas.revision() == 4)
+}

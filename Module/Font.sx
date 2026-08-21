@@ -1,0 +1,92 @@
+use Interop.C
+use Interop.Boundary
+
+public class Font {
+    private static var bundled_default:Font? = null
+    private let source_path:str?
+    private let encoded_data:str
+    private let encoded_size:int
+    private var face_sizes:float[]
+    private var face_weights:int[]
+    private var face_handles:uint[]
+
+    init(source:uint8[]) {
+        if source.count() == 0 { panic("GFX.Canvas font data cannot be empty") }
+        self.source_path = null
+        self.encoded_data = C.string(@source[0:source.count()])
+        self.encoded_size = source.count()
+        self.face_sizes = []
+        self.face_weights = []
+        self.face_handles = []
+    }
+
+    init(source:str) {
+        if source == "" { panic("GFX.Canvas font path cannot be empty") }
+        self.source_path = source
+        self.encoded_data = ""
+        self.encoded_size = 0
+        self.face_sizes = []
+        self.face_weights = []
+        self.face_handles = []
+    }
+
+    static func default() Font {
+        if let cached = Font.bundled_default { return cached }
+        var font = Font(embed_bytes("../Assets/Fonts/NotoSans.ttf"))
+        Font.bundled_default = font
+        return font
+    }
+
+    static func load(path:str) Font { return Font(path) }
+
+    drop {
+        for handle in self.face_handles {
+            ttf_close_font(C.pointer_bits(handle))
+        }
+    }
+
+    module func path() str? { return self.source_path }
+    module func packed_data() str { return self.encoded_data }
+    module func byte_count() int { return self.encoded_size }
+    package func cached_face_count() int { return self.face_handles.count() }
+
+    module func cached_face(size:float, weight:int) uint? {
+        var index = 0
+        while index < self.face_handles.count() {
+            if self.face_sizes[index] == size && self.face_weights[index] == weight {
+                return self.face_handles[index]
+            }
+            index++
+        }
+        return null
+    }
+
+    module func retain_face(size:float, weight:int, handle:uint) uint? {
+        var evicted:uint? = null
+        if self.face_handles.count() >= 16 {
+            evicted = self.face_handles[0]
+            var sizes:float[] = []
+            var weights:int[] = []
+            var handles:uint[] = []
+            var index = 1
+            while index < self.face_handles.count() {
+                sizes.append(self.face_sizes[index])
+                weights.append(self.face_weights[index])
+                handles.append(self.face_handles[index])
+                index++
+            }
+            self.face_sizes = sizes
+            self.face_weights = weights
+            self.face_handles = handles
+        }
+        self.face_sizes.append(size)
+        self.face_weights.append(weight)
+        self.face_handles.append(handle)
+        return evicted
+    }
+}
+
+let ttf_close_font = C.function<func(C.Pointer<uint8>) void>(
+    library:Boundary.SDL3_ttf,
+    name:"TTF_CloseFont"
+)

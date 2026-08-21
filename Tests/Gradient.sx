@@ -1,0 +1,45 @@
+use GFX.Color
+use GFX.Canvas
+use STD.Math
+
+test "paint one linear gradient through fills and line strokes" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        let brush = Canvas.Brush.linear(
+            start:Math.Vec2(2.0, 0.0),
+            end:Math.Vec2(30.0, 0.0),
+            start_color:Color.red_500(),
+            end_color:Color.blue_500()
+        )
+        painter.fill(
+            Canvas.Rect(Math.Vec2(2.0, 1.0), Math.Vec2(28.0, 3.0)),
+            Canvas.Fill.with_brush(brush)
+        )
+        painter.stroke(
+            Canvas.Line(Math.Vec2(2.0, 8.0), Math.Vec2(30.0, 8.0)),
+            Canvas.Stroke.with_brush(brush, 3.0)
+        )
+    })
+    let pixels = drawing.rasterize(32, 12).pixels()
+    let fill_start = (2 * 32 + 3) * 4
+    let fill_end = (2 * 32 + 28) * 4
+    let line_start = (8 * 32 + 3) * 4
+    let line_end = (8 * 32 + 28) * 4
+    assert(pixels[fill_start] > pixels[fill_start + 2])
+    assert(pixels[fill_end + 2] > pixels[fill_end])
+    assert(pixels[line_start] > pixels[line_start + 2])
+    assert(pixels[line_end + 2] > pixels[line_end])
+
+    var found_red_vertex = false
+    var found_blue_vertex = false
+    for vertex in drawing.vector_geometry().vertices() {
+        if vertex.color.a > 0.5 && vertex.position.x <= 2.1 && vertex.color.r > vertex.color.b {
+            found_red_vertex = true
+        }
+        if vertex.color.a > 0.5 && vertex.position.x >= 29.9 && vertex.color.b > vertex.color.r {
+            found_blue_vertex = true
+        }
+    }
+    assert(found_red_vertex)
+    assert(found_blue_vertex)
+}

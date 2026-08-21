@@ -1,0 +1,21 @@
+use GFX.Color
+use GFX.Canvas
+use STD.Math
+
+test "build bounded antialiased geometry" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Rect(Math.Vec2(2.0), Math.Vec2(12.0), 2.0),
+            Canvas.Fill.solid(Color.red_500())
+        )
+        painter.stroke(
+            Canvas.Circle(Math.Vec2(8.0), 5.0),
+            Canvas.Stroke(Color.white(), 2.0)
+        )
+    })
+    let geometry = drawing.vector_geometry()
+    assert(geometry.vertex_count() > 0)
+    assert(geometry.vertex_count() < 10000)
+    assert(geometry.index_count() < 10000)
+}

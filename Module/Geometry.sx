@@ -1,0 +1,52 @@
+use GFX.Color
+use STD.Math
+
+public struct Vertex {
+    var position:Math.Vec3
+    var normal:Math.Vec3
+    var uv:Math.Vec2
+    var color:Color
+
+    init(
+        position:Math.Vec3 = Math.Vec3(),
+        normal:Math.Vec3 = Math.Vec3.back(),
+        uv:Math.Vec2 = Math.Vec2(),
+        color:Color = Color.white()
+    ) {
+        self.position = position
+        self.normal = normal
+        self.uv = uv
+        self.color = color
+    }
+}
+
+public struct Mesh {
+    private var current_vertices:Vertex[]
+    private var current_indices:uint32[]
+
+    init(vertices:Vertex[] = [], indices:uint32[] = []) {
+        self.current_vertices = vertices
+        self.current_indices = indices
+        self.validate()
+    }
+
+    func vertices() Vertex[] { return self.current_vertices }
+    func indices() uint32[] { return self.current_indices }
+    func vertex_count() int { return self.current_vertices.count() }
+    func index_count() int { return self.current_indices.count() }
+    func triangle_count() int { return self.current_indices.count() / 3 }
+    func is_empty() bool {
+        return self.current_vertices.count() == 0 || self.current_indices.count() == 0
+    }
+
+    private func validate() {
+        if self.current_indices.count() % 3 != 0 {
+            panic("GFX.Canvas geometry indices must describe triangles")
+        }
+        for index in self.current_indices {
+            if index as int >= self.current_vertices.count() {
+                panic("GFX.Canvas geometry index is out of bounds")
+            }
+        }
+    }
+}

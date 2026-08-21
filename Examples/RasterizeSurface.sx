@@ -1,0 +1,26 @@
+use GFX.Assets.Image
+use GFX.Color
+use GFX.Canvas
+use GFX.Viewer
+use STD.Math
+
+func main() {
+    var surface = Canvas.Surface(320, 180, Color.slate_950())
+    surface.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Sector(Math.Vec2(90.0), 64.0, -Math.pi() * 0.5, Math.pi() * 1.4),
+            Canvas.Fill.solid(Color.indigo_500())
+        )
+        painter.stroke(
+            Canvas.Ellipse(Math.Vec2(230.0, 90.0), Math.Vec2(56.0, 34.0)),
+            Canvas.Stroke(Color.white(), 4.0)
+        )
+    })
+    surface.draw(Image.solid(Color.red_500()), Math.Vec2(12.0))
+
+    let image = surface.image()
+    assert(image.width() == 320)
+    assert(image.height() == 180)
+    assert(image.pixels()[(90 * 320 + 90) * 4 + 3] > 0)
+    Viewer.show(image, Viewer.ImageSettings(title:"GFX.Canvas — Raster surface"))
+}

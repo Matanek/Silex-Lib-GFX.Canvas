@@ -1,0 +1,9 @@
+use Interop.C
+
+func packed_storage(minimum_byte_count:int) str {
+    var storage = "\0"
+    while C.byte_count(storage) < minimum_byte_count as uint {
+        storage = storage + storage
+    }
+    return storage
+}

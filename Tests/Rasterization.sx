@@ -1,0 +1,689 @@
+use GFX.Color
+use GFX.Assets.Image
+use GFX.Canvas
+use STD.File
+use STD.Math
+use Interop.C
+
+func paint_sample(painter:&Canvas.Painter) {
+    painter.fill(
+        Canvas.Rect(Math.Vec2(2.0), Math.Vec2(12.0), 2.0),
+        Canvas.Fill.solid(Color.red_500())
+    )
+    painter.stroke(
+        Canvas.Circle(Math.Vec2(8.0), 5.0),
+        Canvas.Stroke(Color.white(), 2.0)
+    )
+    var path = Canvas.Path()
+        ..move_to(Math.Vec2(1.0, 14.0))
+        ..line_to(Math.Vec2(8.0, 4.0))
+        ..line_to(Math.Vec2(15.0, 14.0))
+        ..close()
+    painter.stroke(path, Canvas.Stroke(Color.blue_500(), 1.0))
+    painter.text("GFX", Math.Vec2(1.0, 1.0), Canvas.TextStyle(size:5.0))
+}
+
+func assert_vertices_within(
+    drawing:Canvas,
+    minimum:Math.Vec2,
+    maximum:Math.Vec2
+) {
+    let vertices = drawing.vector_geometry().vertices()
+    assert(vertices.count() > 0)
+    for vertex in vertices {
+        assert(vertex.position.x >= minimum.x)
+        assert(vertex.position.y >= minimum.y)
+        assert(vertex.position.x <= maximum.x)
+        assert(vertex.position.y <= maximum.y)
+    }
+}
+
+test "rasterize one drawing into an RGBA image" {
+    var drawing = Canvas()
+    drawing.paint(paint_sample)
+    assert(drawing.command_count() == 4)
+
+    let image = drawing.rasterize(16, 16)
+    assert(image.width() == 16)
+    assert(image.height() == 16)
+    let pixels = image.pixels()
+    assert(pixels.count() == 16 * 16 * 4)
+    assert(pixels[3] == 0)
+    assert(pixels[(8 * 16 + 8) * 4 + 3] > 0)
+
+    let metrics = drawing.measure_text("GFX", Canvas.TextStyle(size:10.0))
+    assert(metrics.width > 0.0)
+    assert(metrics.height > 0.0)
+}
+
+test "use the GFX default font when TextStyle omits a font" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.text("Default", Math.Vec2(), Canvas.TextStyle(size:12.0, color:Color.white()))
+    })
+
+    let implicit_metrics = drawing.measure_text("Default", Canvas.TextStyle(size:12.0))
+    var font = Canvas.Font.default()
+    let explicit_metrics = drawing.measure_text(
+        "Default",
+        Canvas.TextStyle(size:12.0, font:font)
+    )
+    assert(implicit_metrics.width == explicit_metrics.width)
+    assert(implicit_metrics.height == explicit_metrics.height)
+
+    let pixels = drawing.rasterize(48, 16).pixels()
+    var visible = 0
+    var index = 3
+    while index < pixels.count() {
+        if pixels[index] > 0 { visible++ }
+        index += 4
+    }
+    assert(visible > 40)
+}
+
+test "reuse an opened font face for repeated text" {
+    var font = Canvas.Font.default()
+    var style = Canvas.TextStyle(size:13.25, weight:Canvas.TextWeight.bold, font:font)
+    var drawing = Canvas()
+    let before = font.cached_face_count()
+    let first = drawing.measure_text("first", style)
+    let after_first = font.cached_face_count()
+    let second = drawing.measure_text("second", style)
+    let after_second = font.cached_face_count()
+    assert(first.width > 0.0)
+    assert(second.width > 0.0)
+    assert(after_first >= before)
+    assert(after_second == after_first)
+}
+
+test "rasterize retained text at the display pixel density" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.text("Sharp", Math.Vec2(2.0), Canvas.TextStyle(size:12.0))
+    })
+    var snapshot = drawing.snapshot(48, 18)
+    let logical = snapshot.text()
+    var logical_layer = snapshot.text_layer()
+    let retina = snapshot.text(2.0)
+
+    assert(logical.width() < 48)
+    assert(logical.height() <= 18)
+    assert(logical_layer.origin.x == 2.0)
+    assert(retina.width() <= logical.width() * 2 + 2)
+    assert(retina.height() <= logical.height() * 2 + 2)
+}
+
+test "antialias shape edges with graduated coverage" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Circle(Math.Vec2(4.0), 3.25),
+            Canvas.Fill.solid(Color.white())
+        )
+    })
+
+    let pixels = drawing.rasterize(8, 8).pixels()
+    var partial_levels:uint8[] = []
+    var index = 3
+    while index < pixels.count() {
+        let alpha = pixels[index]
+        if alpha > 0 && alpha < 255 {
+            var known = false
+            for level in partial_levels { if level == alpha { known = true } }
+            if !known { partial_levels.append(alpha) }
+        }
+        index += 4
+    }
+    assert(partial_levels.count() >= 3)
+}
+
+test "draw vector artwork and images into a raster surface" {
+    var surface = Canvas.Surface(16, 16, Color.black())
+    surface.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Sector(Math.Vec2(8.0), 6.0, 0.0, Math.pi()),
+            Canvas.Fill.solid(Color.red_500())
+        )
+        painter.stroke(
+            Canvas.Arc(Math.Vec2(8.0), 5.0, Math.pi(), Math.pi()),
+            Canvas.Stroke(Color.white(), 1.0)
+        )
+        painter.stroke(
+            Canvas.Ellipse(Math.Vec2(8.0), Math.Vec2(6.0, 3.0)),
+            Canvas.Stroke(Color.blue_500(), 1.0)
+        )
+    })
+    surface.draw(Image.solid(Color.white()), Math.Vec2(1.0), 0.5)
+
+    let image = surface.image()
+    assert(image.width() == 16)
+    assert(image.height() == 16)
+    assert(image.pixels()[(8 * 16 + 8) * 4 + 3] == 255)
+}
+
+test "keep an image independent from later surface edits" {
+    var surface = Canvas.Surface(2, 2, Color.red_500())
+    let snapshot = surface.image()
+    surface.clear(Color.blue_500())
+
+    let before = snapshot.pixels()
+    let after = surface.pixels()
+    assert(before[0] > before[2])
+    assert(after[2] > after[0])
+}
+
+func paint_vector_text(painter:&Canvas.Painter, font:Canvas.Font) {
+    painter.text(
+        "Silex — déjà prêt",
+        Math.Vec2(2.0, 2.0),
+        Canvas.TextStyle(size:18.0, color:Color.white(), font:font)
+    )
+}
+
+test "load a font and rasterize shaped UTF-8 text" {
+    let path = "/private/tmp/silex-gfx-canvas-noto-sans.ttf"
+    let encoded = embed_bytes("../Assets/Fonts/NotoSans.ttf")
+    match File.write_all(path, @encoded[0:encoded.count()]) {
+        failure(error) => { panic(error.detail) }
+        success => {}
+    }
+    var font = Canvas.Font(path)
+    var style = Canvas.TextStyle(size:18.0, font:font)
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) { paint_vector_text(painter, font) })
+
+    let metrics = drawing.measure_text("Silex — déjà prêt", style)
+    assert(metrics.width > 80.0)
+    assert(metrics.height > 10.0)
+
+    let image = drawing.rasterize(180, 28)
+    var visible = 0
+    let pixels = image.pixels()
+    var index = 3
+    while index < pixels.count() {
+        if pixels[index] > 0 { visible++ }
+        index += 4
+    }
+    assert(visible > 100)
+}
+
+test "create a font from encoded asset bytes" {
+    var font = Canvas.Font(embed_bytes("../Assets/Fonts/NotoSans.ttf"))
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.text(
+            "Silex",
+            Math.Vec2(),
+            Canvas.TextStyle(size:18.0, color:Color.white(), font:font)
+        )
+    })
+    let metrics = drawing.measure_text(
+        "Silex",
+        Canvas.TextStyle(size:18.0, font:font)
+    )
+    assert(metrics.width > 30.0)
+    assert(metrics.height > 10.0)
+
+    let pixels = drawing.rasterize(64, 24).pixels()
+    var visible_after_first_glyph = 0
+    var y = 0
+    while y < 24 {
+        var x = 16
+        while x < 64 {
+            if pixels[(y * 64 + x) * 4 + 3] > 0 { visible_after_first_glyph++ }
+            x++
+        }
+        y++
+    }
+    assert(visible_after_first_glyph > 20)
+}
+
+func visible_axis_glyph_pixels(
+    value:str,
+    weight:Canvas.TextWeight,
+    font:Canvas.Font
+) int {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.text(
+            value,
+            Math.Vec2(21.0, 3.0),
+            Canvas.TextStyle(
+                size:24.0,
+                color:Color.white(),
+                alignment:Canvas.TextAlignment.center,
+                weight:weight,
+                font:font
+            )
+        )
+    })
+    let pixels = drawing.rasterize(40, 40).pixels()
+    var visible = 0
+    var minimum_x = 40
+    var minimum_y = 40
+    var maximum_x = -1
+    var maximum_y = -1
+    var y = 0
+    while y < 40 {
+        var x = 0
+        while x < 40 {
+            if pixels[(y * 40 + x) * 4 + 3] > 0 {
+                if x < minimum_x { minimum_x = x }
+                if y < minimum_y { minimum_y = y }
+                if x > maximum_x { maximum_x = x }
+                if y > maximum_y { maximum_y = y }
+            }
+            x++
+        }
+        y++
+    }
+    var index = 3
+    while index < pixels.count() {
+        if pixels[index] > 0 { visible++ }
+        index += 4
+    }
+    assert(minimum_x + maximum_x >= 39)
+    assert(minimum_x + maximum_x <= 41)
+    assert(minimum_y + maximum_y >= 39)
+    assert(minimum_y + maximum_y <= 41)
+    return visible
+}
+
+test "use the complete default font for viewport labels" {
+    var font = Canvas.Font.default()
+    let regular_x = visible_axis_glyph_pixels("X", Canvas.TextWeight.regular, font)
+    let bold_x = visible_axis_glyph_pixels("X", Canvas.TextWeight.bold, font)
+    assert(bold_x > regular_x)
+    assert(visible_axis_glyph_pixels("Y", Canvas.TextWeight.bold, font) > 10)
+    assert(visible_axis_glyph_pixels("Z", Canvas.TextWeight.bold, font) > 10)
+
+    var drawing = Canvas()
+    var style = Canvas.TextStyle(size:16.0, font:font)
+    let metrics = drawing.measure_text("déjà — Ελληνικά — Кириллица", style)
+    assert(metrics.width > 150.0)
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.text("déjà — Ελληνικά — Кириллица", Math.Vec2(), style)
+    })
+    let pixels = drawing.rasterize(256, 24).pixels()
+    var visible = 0
+    var index = 3
+    while index < pixels.count() {
+        if pixels[index] > 0 { visible++ }
+        index += 4
+    }
+    assert(visible > 300)
+}
+
+test "build bounded retained geometry from drawing commands" {
+    var drawing = Canvas()
+    drawing.paint(paint_sample)
+    let geometry = drawing.vector_geometry()
+    assert(geometry.vertex_count() > 0)
+    assert(geometry.vertex_count() * 36 > 0)
+    assert(geometry.vertex_count() < 10000)
+    assert(geometry.index_count() < 10000)
+}
+
+test "keep every gallery stroke triangle local to its path" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        var dash = 0
+        while dash < 96 {
+            let row = dash / 24
+            let column = dash % 24
+            let start = Math.Vec2(12.0 + column as float * 11.0, 12.0 + row as float * 9.0)
+            painter.stroke(
+                Canvas.Line(start, start.add(Math.Vec2(5.0, 0.0))),
+                Canvas.Stroke(Color.violet_400(), 5.0)..cap = Canvas.StrokeCap.round
+            )
+            dash++
+        }
+
+        var angular = Canvas.Path()
+            ..move_to(Math.Vec2(24.0, 82.0))
+            ..line_to(Math.Vec2(62.0, 52.0))
+            ..line_to(Math.Vec2(100.0, 96.0))
+            ..line_to(Math.Vec2(140.0, 58.0))
+            ..line_to(Math.Vec2(178.0, 96.0))
+            ..line_to(Math.Vec2(246.0, 52.0))
+        painter.stroke(angular, Canvas.Stroke(Color.blue_400(), 7.0)
+            ..cap = Canvas.StrokeCap.round
+            ..join = Canvas.StrokeJoin.round
+        )
+
+        var steps = Canvas.Path()
+            ..move_to(Math.Vec2(313.0, 145.0))
+            ..line_to(Math.Vec2(358.0, 145.0))
+            ..line_to(Math.Vec2(358.0, 120.0))
+            ..line_to(Math.Vec2(413.0, 120.0))
+            ..line_to(Math.Vec2(413.0, 155.0))
+            ..line_to(Math.Vec2(533.0, 155.0))
+        painter.stroke(steps, Canvas.Stroke(Color.green_400(), 3.0)
+            ..join = Canvas.StrokeJoin.bevel
+        )
+
+        var cubic = Canvas.Path()
+            ..move_to(Math.Vec2(721.0, 105.0))
+            ..cubic_to(
+                Math.Vec2(751.0, 35.0),
+                Math.Vec2(801.0, 165.0),
+                Math.Vec2(828.0, 88.0)
+            )
+        painter.stroke(cubic, Canvas.Stroke(Color.fuchsia_400(), 5.0)
+            ..cap = Canvas.StrokeCap.round
+        )
+    })
+
+    let geometry = drawing.vector_geometry()
+    let vertices = geometry.vertices()
+    let indices = geometry.indices()
+    var packed_index = 0
+    while packed_index < indices.count() {
+        assert(indices[packed_index] == packed_index as uint32)
+        packed_index++
+    }
+    var triangle = 0
+    while triangle < indices.count() {
+        let a = vertices[indices[triangle] as int].position
+        let b = vertices[indices[triangle + 1] as int].position
+        let c = vertices[indices[triangle + 2] as int].position
+        assert(a.distance(b) < 140.0)
+        assert(b.distance(c) < 140.0)
+        assert(c.distance(a) < 140.0)
+        triangle += 3
+    }
+}
+
+test "preserve the width of a sharp closed miter join" {
+    let center = Math.Vec2(50.0)
+    var star = Canvas.Path()
+    var point = 0
+    while point < 10 {
+        var radius = 39.0
+        if point % 2 == 1 { radius = 17.0 }
+        let angle = -Math.pi() * 0.5 + Math.pi() * point as float / 5.0
+        let position = center.add(Math.Vec2(Math.cos(angle), Math.sin(angle)).multiply(radius))
+        if point == 0 { star.move_to(position) }
+        else { star.line_to(position) }
+        point++
+    }
+    star.close()
+
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.stroke(star, Canvas.Stroke(Color.yellow_400(), 4.0)
+            ..join = Canvas.StrokeJoin.miter
+        )
+    })
+
+    var farthest = 0.0
+    for vertex in drawing.vector_geometry().vertices() {
+        farthest = Math.max(
+            farthest,
+            Math.Vec2(vertex.position.x, vertex.position.y).distance(center)
+        )
+    }
+    assert(farthest > 45.0, "closed miter radius is too short: $(farthest)")
+    assert(farthest < 47.0, "closed miter radius is too long: $(farthest)")
+}
+
+test "share retained geometry until its drawing changes" {
+    var drawing = Canvas()
+    drawing.paint(paint_sample)
+    var first = drawing.snapshot(16, 16)
+    var second = drawing.snapshot(16, 16)
+    assert(C.object_address(first) == C.object_address(second))
+
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Circle(Math.Vec2(4.0), 2.0),
+            Canvas.Fill.solid(Color.green_500())
+        )
+    })
+    var changed = drawing.snapshot(16, 16)
+    assert(C.object_address(first) != C.object_address(changed))
+}
+
+test "retain text pixels only when text is requested" {
+    var shapes = Canvas()
+    shapes.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Circle(Math.Vec2(16.0), 12.0),
+            Canvas.Fill.solid(Color.blue_500())
+        )
+    })
+    var shape_snapshot = shapes.snapshot(2048, 2048)
+    assert(!shape_snapshot.has_text())
+    assert(!shape_snapshot.has_cached_text())
+
+    var labels = Canvas()
+    labels.paint(func(painter:&Canvas.Painter) {
+        painter.text("cached lazily", Math.Vec2(2.0), Canvas.TextStyle(size:12.0))
+    })
+    var label_snapshot = labels.snapshot(128, 32)
+    assert(label_snapshot.has_text())
+    assert(!label_snapshot.has_cached_text())
+    let image = label_snapshot.text()
+    assert(image.width() < 128)
+    assert(image.height() <= 32)
+    assert(label_snapshot.has_cached_text())
+}
+
+test "join a translucent closed stroke without overlapping round caps" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.stroke(
+            Canvas.Circle(Math.Vec2(10.0), 8.5),
+            Canvas.Stroke(Color.white().with_alpha(0.5), 1.8)
+        )
+    })
+
+    let geometry = drawing.vector_geometry()
+    assert(geometry.vertex_count() > 0)
+    assert(geometry.vertex_count() < 1000)
+    assert(geometry.index_count() == geometry.vertex_count())
+}
+
+test "join a translucent open stroke without per-point overdraw" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        var path = Canvas.Path()
+            ..move_to(Math.Vec2(2.0, 12.0))
+            ..line_to(Math.Vec2(8.0, 4.0))
+            ..line_to(Math.Vec2(16.0, 2.0))
+            ..line_to(Math.Vec2(24.0, 6.0))
+            ..line_to(Math.Vec2(30.0, 14.0))
+        painter.stroke(path, Canvas.Stroke(
+            Color.white().with_alpha(0.5),
+            5.0
+        )
+            ..cap = Canvas.StrokeCap.round
+            ..join = Canvas.StrokeJoin.round
+        )
+    })
+
+    let geometry = drawing.vector_geometry()
+    assert(geometry.vertex_count() > 0)
+    assert(geometry.vertex_count() < 300)
+    assert(geometry.index_count() == geometry.vertex_count())
+}
+
+test "keep open polylines curves and arcs within their source bounds" {
+    var polyline = Canvas()
+    polyline.paint(func(painter:&Canvas.Painter) {
+        var path = Canvas.Path()
+            ..move_to(Math.Vec2(20.0, 150.0))
+            ..line_to(Math.Vec2(70.0, 55.0))
+            ..line_to(Math.Vec2(125.0, 145.0))
+            ..line_to(Math.Vec2(180.0, 65.0))
+            ..line_to(Math.Vec2(230.0, 145.0))
+        painter.stroke(path, Canvas.Stroke(Color.orange_400(), 8.0)
+            ..cap = Canvas.StrokeCap.round
+            ..join = Canvas.StrokeJoin.round
+        )
+    })
+    assert_vertices_within(polyline, Math.Vec2(0.0), Math.Vec2(250.0))
+
+    var quadratic = Canvas()
+    quadratic.paint(func(painter:&Canvas.Painter) {
+        var path = Canvas.Path()
+            ..move_to(Math.Vec2(20.0, 155.0))
+            ..quadratic_to(Math.Vec2(125.0, 20.0), Math.Vec2(230.0, 155.0))
+        painter.stroke(path, Canvas.Stroke(Color.yellow_400(), 8.0)
+            ..cap = Canvas.StrokeCap.round
+        )
+    })
+    assert_vertices_within(quadratic, Math.Vec2(0.0), Math.Vec2(250.0))
+
+    var cubic = Canvas()
+    cubic.paint(func(painter:&Canvas.Painter) {
+        var path = Canvas.Path()
+            ..move_to(Math.Vec2(20.0, 145.0))
+            ..cubic_to(
+                Math.Vec2(70.0, 25.0),
+                Math.Vec2(175.0, 205.0),
+                Math.Vec2(230.0, 75.0)
+            )
+        painter.stroke(path, Canvas.Stroke(Color.green_400(), 8.0)
+            ..cap = Canvas.StrokeCap.round
+        )
+    })
+    assert_vertices_within(cubic, Math.Vec2(0.0), Math.Vec2(250.0))
+
+    var arc = Canvas()
+    arc.paint(func(painter:&Canvas.Painter) {
+        painter.stroke(
+            Canvas.Arc(Math.Vec2(125.0, 120.0), 75.0, -2.6, 4.9),
+            Canvas.Stroke(Color.blue_400(), 8.0)..cap = Canvas.StrokeCap.round
+        )
+    })
+    assert_vertices_within(arc, Math.Vec2(0.0), Math.Vec2(250.0))
+}
+
+test "adapt curve subdivision to visible curvature" {
+    var straight = Canvas()
+    straight.paint(func(painter:&Canvas.Painter) {
+        var path = Canvas.Path()
+            ..move_to(Math.Vec2(10.0, 60.0))
+            ..quadratic_to(Math.Vec2(60.0, 60.0), Math.Vec2(110.0, 60.0))
+        painter.stroke(path, Canvas.Stroke(Color.blue_400(), 5.0)
+            ..cap = Canvas.StrokeCap.round
+            ..join = Canvas.StrokeJoin.round
+        )
+    })
+
+    var curved = Canvas()
+    curved.paint(func(painter:&Canvas.Painter) {
+        var path = Canvas.Path()
+            ..move_to(Math.Vec2(10.0, 60.0))
+            ..quadratic_to(Math.Vec2(60.0, -20.0), Math.Vec2(110.0, 60.0))
+        painter.stroke(path, Canvas.Stroke(Color.blue_400(), 5.0)
+            ..cap = Canvas.StrokeCap.round
+            ..join = Canvas.StrokeJoin.round
+        )
+    })
+
+    assert(curved.vector_geometry().vertex_count() > straight.vector_geometry().vertex_count())
+    assert(curved.vector_geometry().vertex_count() > 500)
+}
+
+test "draw circular contours with radius-independent analytic geometry" {
+    var small = Canvas()
+    small.paint(func(painter:&Canvas.Painter) {
+        painter.stroke(
+            Canvas.Circle(Math.Vec2(40.0), 30.0),
+            Canvas.Stroke(Color.blue_400(), 4.0)
+        )
+    })
+
+    var large = Canvas()
+    large.paint(func(painter:&Canvas.Painter) {
+        painter.stroke(
+            Canvas.Circle(Math.Vec2(130.0), 120.0),
+            Canvas.Stroke(Color.blue_400(), 4.0)
+        )
+    })
+
+    assert(small.vector_geometry().vertex_count() == 6)
+    assert(large.vector_geometry().vertex_count() == 6)
+}
+
+test "retain visible horizontal vertical and diagonal lines" {
+    let starts:Math.Vec2[] = [
+        Math.Vec2(2.0, 8.0),
+        Math.Vec2(8.0, 2.0),
+        Math.Vec2(2.0, 2.0)
+    ]
+    let ends:Math.Vec2[] = [
+        Math.Vec2(14.0, 8.0),
+        Math.Vec2(8.0, 14.0),
+        Math.Vec2(14.0, 14.0)
+    ]
+    var index = 0
+    while index < starts.count() {
+        var drawing = Canvas()
+        drawing.paint(func(painter:&Canvas.Painter) {
+            painter.stroke(
+                Canvas.Line(starts[index], ends[index]),
+                Canvas.Stroke(Color.white(), 3.0)..cap = Canvas.StrokeCap.round
+            )
+        })
+        let geometry = drawing.vector_geometry()
+        assert(geometry.vertex_count() > 6)
+        assert(geometry.triangle_count() > 2)
+        index++
+    }
+}
+
+test "keep a round stroke bounded around a nearly flat curve" {
+    var points:Math.Vec2[] = []
+    var path = Canvas.Path()
+    var index = 0
+    while index <= 48 {
+        let angle = Math.pi() * index as float / 48.0
+        let point = Math.Vec2(Math.cos(angle) * 80.0, Math.sin(angle) * 4.0)
+        points.append(point)
+        if index == 0 { path.move_to(point) }
+        else { path.line_to(point) }
+        index++
+    }
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.stroke(path, Canvas.Stroke(Color.blue_500(), 5.0)
+            ..cap = Canvas.StrokeCap.round
+            ..join = Canvas.StrokeJoin.round
+        )
+    })
+
+    let geometry = drawing.vector_geometry()
+    for vertex in geometry.vertices() {
+        let point = Math.Vec2(vertex.position.x, vertex.position.y)
+        var closest = 1.0e30
+        var segment = 1
+        while segment < points.count() {
+            let start = points[segment - 1]
+            let end = points[segment]
+            let direction = end.subtract(start)
+            let amount = Math.clamp(
+                point.subtract(start).dot(direction) / direction.length_squared(),
+                0.0,
+                1.0
+            )
+            closest = Math.min(closest, point.distance(start.add(direction.multiply(amount))))
+            segment++
+        }
+        assert(closest <= 3.65)
+    }
+    let vertices = geometry.vertices()
+    let indices = geometry.indices()
+    var triangle = 0
+    while triangle < indices.count() {
+        let a = vertices[indices[triangle] as int].position
+        let b = vertices[indices[triangle + 1] as int].position
+        let c = vertices[indices[triangle + 2] as int].position
+        assert(a.distance(b) < 12.0)
+        assert(b.distance(c) < 12.0)
+        assert(c.distance(a) < 12.0)
+        triangle += 3
+    }
+}

@@ -1,0 +1,370 @@
+use GFX.Canvas
+use GFX.Color
+use GFX.Viewer
+use STD.Math
+
+static struct Constants {
+    let canvas_width:int = 1180
+    let canvas_height:int = 760
+}
+
+func label(
+    painter:&Canvas.Painter,
+    font:Canvas.Font,
+    value:str,
+    position:Math.Vec2,
+    size:float = 14.0,
+    color:Color = Color.slate_300()
+) {
+    painter.text(value, position, Canvas.TextStyle(size:size, color:color, font:font))
+}
+func card(
+    painter:&Canvas.Painter,
+    font:Canvas.Font,
+    title:str,
+    position:Math.Vec2,
+    size:Math.Vec2
+) {
+    painter.fill(
+        Canvas.Rect(position, size, 14.0),
+        Canvas.Fill.solid(Color.slate_900().with_alpha(0.94))
+    )
+    painter.stroke(
+        Canvas.Rect(position, size, 14.0),
+        Canvas.Stroke(Color.slate_700(), 1.5)
+    )
+    label(
+        painter,
+        font,
+        title,
+        position.add(Math.Vec2(16.0, 12.0)),
+        15.0,
+        Color.slate_100()
+    )
+}
+
+func dashed_line(
+    painter:&Canvas.Painter,
+    start:Math.Vec2,
+    end:Math.Vec2,
+    dash:float,
+    gap:float,
+    style:Canvas.Stroke
+) {
+    let direction = end.subtract(start)
+    let length = direction.length()
+    let axis = direction.normalized()
+    var distance = 0.0
+    while distance < length {
+        let dash_end = Math.min(distance + dash, length)
+        painter.stroke(
+            Canvas.Line(
+                start.add(axis.multiply(distance)),
+                start.add(axis.multiply(dash_end))
+            ),
+            style
+        )
+        distance += dash + gap
+    }
+}
+
+func polygon(center:Math.Vec2, radius:float, sides:int, rotation:float = 0.0) Canvas.Path {
+    var path = Canvas.Path()
+    var index = 0
+    while index < sides {
+        let angle = rotation + Math.pi() * 2.0 * index as float / sides as float
+        let point = center.add(Math.Vec2(Math.cos(angle), Math.sin(angle)).multiply(radius))
+        if index == 0 { path.move_to(point) }
+        else { path.line_to(point) }
+        index++
+    }
+    path.close()
+    return path
+}
+
+func star(center:Math.Vec2, outer:float, inner:float, points:int) Canvas.Path {
+    var path = Canvas.Path()
+    var index = 0
+    while index < points * 2 {
+        var radius = outer
+        if index % 2 == 1 { radius = inner }
+        let angle = -Math.pi() * 0.5 + Math.pi() * index as float / points as float
+        let point = center.add(Math.Vec2(Math.cos(angle), Math.sin(angle)).multiply(radius))
+        if index == 0 { path.move_to(point) }
+        else { path.line_to(point) }
+        index++
+    }
+    path.close()
+    return path
+}
+
+func arrow(
+    painter:&Canvas.Painter,
+    start:Math.Vec2,
+    end:Math.Vec2,
+    color:Color,
+    width:float
+) {
+    let direction = end.subtract(start).normalized()
+    let normal = Math.Vec2(-direction.y, direction.x)
+    let head = Math.max(10.0, width * 2.5)
+    let shoulder = end.subtract(direction.multiply(head))
+    painter.stroke(
+        Canvas.Line(start, shoulder),
+        Canvas.Stroke(color, width)..cap = Canvas.StrokeCap.round
+    )
+    var tip = Canvas.Path()
+        ..move_to(end)
+        ..line_to(shoulder.add(normal.multiply(head * 0.55)))
+        ..line_to(shoulder.subtract(normal.multiply(head * 0.55)))
+        ..close()
+    painter.fill(tip, Canvas.Fill.solid(color))
+}
+
+func paint_lines(painter:&Canvas.Painter, font:Canvas.Font, origin:Math.Vec2) {
+    card(painter, font, "Lignes, épaisseurs et extrémités", origin, Math.Vec2(275.0, 195.0))
+    let x = origin.x + 20.0
+    let y = origin.y + 55.0
+    painter.stroke(Canvas.Line(Math.Vec2(x, y), Math.Vec2(x + 92.0, y)), Canvas.Stroke(Color.sky_400(), 2.0))
+    painter.stroke(Canvas.Line(Math.Vec2(x + 118.0, y - 12.0), Math.Vec2(x + 118.0, y + 45.0)), Canvas.Stroke(Color.cyan_400(), 4.0))
+    painter.stroke(Canvas.Line(Math.Vec2(x + 150.0, y - 12.0), Math.Vec2(x + 230.0, y + 45.0)), Canvas.Stroke(Color.indigo_400(), 6.0))
+
+    let caps_y = y + 78.0
+    painter.stroke(
+        Canvas.Line(Math.Vec2(x, caps_y), Math.Vec2(x + 62.0, caps_y)),
+        Canvas.Stroke(Color.amber_400(), 10.0)..cap = Canvas.StrokeCap.butt
+    )
+    painter.stroke(
+        Canvas.Line(Math.Vec2(x + 84.0, caps_y), Math.Vec2(x + 146.0, caps_y)),
+        Canvas.Stroke(Color.orange_400(), 10.0)..cap = Canvas.StrokeCap.round
+    )
+    painter.stroke(
+        Canvas.Line(Math.Vec2(x + 168.0, caps_y), Math.Vec2(x + 230.0, caps_y)),
+        Canvas.Stroke(Color.rose_400(), 10.0)..cap = Canvas.StrokeCap.square
+    )
+    label(painter, font, "butt", Math.Vec2(x + 13.0, caps_y + 14.0), 11.0)
+    label(painter, font, "round", Math.Vec2(x + 96.0, caps_y + 14.0), 11.0)
+    label(painter, font, "square", Math.Vec2(x + 180.0, caps_y + 14.0), 11.0)
+}
+
+func paint_dashes(painter:&Canvas.Painter, font:Canvas.Font, origin:Math.Vec2) {
+    card(painter, font, "Pointillés et tirets", origin, Math.Vec2(275.0, 195.0))
+    let start = origin.add(Math.Vec2(22.0, 62.0))
+    let end_x = origin.x + 252.0
+    dashed_line(painter, start, Math.Vec2(end_x, start.y), 2.0, 7.0, Canvas.Stroke(Color.sky_400(), 3.0))
+    dashed_line(painter, start.add(Math.Vec2(0.0, 38.0)), Math.Vec2(end_x, start.y + 38.0), 16.0, 9.0, Canvas.Stroke(Color.emerald_400(), 4.0))
+    dashed_line(painter, start.add(Math.Vec2(0.0, 78.0)), Math.Vec2(end_x, start.y + 78.0), 22.0, 7.0, Canvas.Stroke(Color.violet_400(), 5.0)..cap = Canvas.StrokeCap.round)
+    label(painter, font, "point · tiret · tiret arrondi", origin.add(Math.Vec2(22.0, 160.0)), 11.0)
+}
+
+func paint_paths(painter:&Canvas.Painter, font:Canvas.Font, origin:Math.Vec2) {
+    card(painter, font, "Polylignes et jonctions", origin, Math.Vec2(275.0, 195.0))
+    var angular = Canvas.Path()
+        ..move_to(origin.add(Math.Vec2(24.0, 82.0)))
+        ..line_to(origin.add(Math.Vec2(62.0, 52.0)))
+        ..line_to(origin.add(Math.Vec2(100.0, 96.0)))
+        ..line_to(origin.add(Math.Vec2(140.0, 58.0)))
+        ..line_to(origin.add(Math.Vec2(178.0, 96.0)))
+        ..line_to(origin.add(Math.Vec2(246.0, 52.0)))
+    painter.stroke(
+        angular,
+        Canvas.Stroke(Color.blue_400(), 7.0)
+            ..cap = Canvas.StrokeCap.round
+            ..join = Canvas.StrokeJoin.round
+    )
+    var steps = Canvas.Path()
+        ..move_to(origin.add(Math.Vec2(25.0, 145.0)))
+        ..line_to(origin.add(Math.Vec2(70.0, 145.0)))
+        ..line_to(origin.add(Math.Vec2(70.0, 120.0)))
+        ..line_to(origin.add(Math.Vec2(125.0, 120.0)))
+        ..line_to(origin.add(Math.Vec2(125.0, 155.0)))
+        ..line_to(origin.add(Math.Vec2(245.0, 155.0)))
+    painter.stroke(steps, Canvas.Stroke(Color.green_400(), 3.0)..join = Canvas.StrokeJoin.bevel)
+}
+
+func paint_curves(painter:&Canvas.Painter, font:Canvas.Font, origin:Math.Vec2) {
+    card(painter, font, "Courbes quadratiques et cubiques", origin, Math.Vec2(275.0, 195.0))
+    var quadratic = Canvas.Path()
+        ..move_to(origin.add(Math.Vec2(24.0, 105.0)))
+        ..quadratic_to(origin.add(Math.Vec2(78.0, 35.0)), origin.add(Math.Vec2(132.0, 105.0)))
+    painter.stroke(quadratic, Canvas.Stroke(Color.sky_400(), 5.0)..cap = Canvas.StrokeCap.round)
+
+    var cubic = Canvas.Path()
+        ..move_to(origin.add(Math.Vec2(145.0, 105.0)))
+        ..cubic_to(
+            origin.add(Math.Vec2(175.0, 35.0)),
+            origin.add(Math.Vec2(225.0, 165.0)),
+            origin.add(Math.Vec2(252.0, 88.0))
+        )
+    painter.stroke(cubic, Canvas.Stroke(Color.fuchsia_400(), 5.0)..cap = Canvas.StrokeCap.round)
+    label(painter, font, "quadratique", origin.add(Math.Vec2(42.0, 145.0)), 11.0)
+    label(painter, font, "Bézier cubique", origin.add(Math.Vec2(165.0, 145.0)), 11.0)
+}
+
+func paint_round_shapes(painter:&Canvas.Painter, font:Canvas.Font, origin:Math.Vec2) {
+    card(painter, font, "Cercles et ellipses", origin, Math.Vec2(275.0, 195.0))
+    painter.stroke(Canvas.Circle(origin.add(Math.Vec2(55.0, 105.0)), 30.0), Canvas.Stroke(Color.sky_400(), 4.0))
+    painter.fill(Canvas.Ellipse(origin.add(Math.Vec2(138.0, 105.0)), Math.Vec2(42.0, 27.0)), Canvas.Fill.solid(Color.emerald_400()))
+    painter.stroke(Canvas.Circle(origin.add(Math.Vec2(225.0, 105.0)), 30.0), Canvas.Stroke(Color.violet_400(), 13.0))
+    label(painter, font, "contour fin", origin.add(Math.Vec2(24.0, 150.0)), 11.0)
+    label(painter, font, "plein", origin.add(Math.Vec2(124.0, 150.0)), 11.0)
+    label(painter, font, "contour épais", origin.add(Math.Vec2(188.0, 150.0)), 11.0)
+}
+
+func paint_arcs(painter:&Canvas.Painter, font:Canvas.Font, origin:Math.Vec2) {
+    card(painter, font, "Arcs, secteurs et segments", origin, Math.Vec2(275.0, 195.0))
+    painter.stroke(
+        Canvas.Arc(origin.add(Math.Vec2(52.0, 113.0)), 35.0, Math.pi(), Math.pi()),
+        Canvas.Stroke(Color.sky_400(), 5.0)..cap = Canvas.StrokeCap.round
+    )
+    painter.fill(
+        Canvas.Sector(origin.add(Math.Vec2(137.0, 110.0)), 38.0, -Math.pi() * 0.5, Math.pi() * 1.55),
+        Canvas.Fill.solid(Color.amber_400())
+    )
+    painter.stroke(
+        Canvas.Arc(origin.add(Math.Vec2(224.0, 110.0)), 31.0, Math.pi() * 0.15, Math.pi() * 1.55),
+        Canvas.Stroke(Color.purple_400(), 14.0)..cap = Canvas.StrokeCap.butt
+    )
+    label(painter, font, "arc", origin.add(Math.Vec2(42.0, 158.0)), 11.0)
+    label(painter, font, "secteur", origin.add(Math.Vec2(116.0, 158.0)), 11.0)
+    label(painter, font, "secteur d’anneau", origin.add(Math.Vec2(184.0, 158.0)), 11.0)
+}
+
+func paint_rectangles(painter:&Canvas.Painter, font:Canvas.Font, origin:Math.Vec2) {
+    card(painter, font, "Rectangles, carrés et arrondis", origin, Math.Vec2(275.0, 195.0))
+    painter.stroke(Canvas.Rect(origin.add(Math.Vec2(24.0, 72.0)), Math.Vec2(70.0, 55.0)), Canvas.Stroke(Color.blue_400(), 4.0))
+    painter.fill(Canvas.Rect(origin.add(Math.Vec2(112.0, 68.0)), Math.Vec2(58.0)), Canvas.Fill.solid(Color.green_400()))
+    painter.fill(
+        Canvas.Rect(origin.add(Math.Vec2(188.0, 68.0)), Math.Vec2(64.0, 62.0), 18.0),
+        Canvas.Fill.with_brush(Canvas.Brush.linear(
+            start:origin.add(Math.Vec2(188.0, 68.0)),
+            end:origin.add(Math.Vec2(252.0, 130.0)),
+            start_color:Color.violet_400(),
+            end_color:Color.pink_400()
+        ))
+    )
+    label(painter, font, "contour", origin.add(Math.Vec2(35.0, 148.0)), 11.0)
+    label(painter, font, "plein", origin.add(Math.Vec2(127.0, 148.0)), 11.0)
+    label(painter, font, "dégradé", origin.add(Math.Vec2(198.0, 148.0)), 11.0)
+}
+
+func paint_polygons(painter:&Canvas.Painter, font:Canvas.Font, origin:Math.Vec2) {
+    card(painter, font, "Polygones réguliers", origin, Math.Vec2(275.0, 195.0))
+    painter.stroke(polygon(origin.add(Math.Vec2(54.0, 108.0)), 36.0, 3, -Math.pi() * 0.5), Canvas.Stroke(Color.amber_400(), 4.0))
+    painter.stroke(polygon(origin.add(Math.Vec2(137.0, 108.0)), 36.0, 5, -Math.pi() * 0.5), Canvas.Stroke(Color.teal_400(), 4.0))
+    painter.stroke(polygon(origin.add(Math.Vec2(222.0, 108.0)), 36.0, 8, Math.pi() * 0.125), Canvas.Stroke(Color.violet_400(), 4.0))
+    label(painter, font, "triangle", origin.add(Math.Vec2(32.0, 158.0)), 11.0)
+    label(painter, font, "pentagone", origin.add(Math.Vec2(108.0, 158.0)), 11.0)
+    label(painter, font, "octogone", origin.add(Math.Vec2(198.0, 158.0)), 11.0)
+}
+
+func paint_special_polygons(painter:&Canvas.Painter, font:Canvas.Font, origin:Math.Vec2) {
+    card(painter, font, "Étoile, losange et forme concave", origin, Math.Vec2(275.0, 195.0))
+    painter.stroke(
+        star(origin.add(Math.Vec2(54.0, 108.0)), 39.0, 17.0, 5),
+        Canvas.Stroke(Color.yellow_400(), 4.0)..join = Canvas.StrokeJoin.miter
+    )
+    painter.stroke(polygon(origin.add(Math.Vec2(137.0, 108.0)), 38.0, 4, 0.0), Canvas.Stroke(Color.cyan_400(), 4.0))
+    var concave = Canvas.Path()
+        ..move_to(origin.add(Math.Vec2(190.0, 72.0)))
+        ..line_to(origin.add(Math.Vec2(248.0, 75.0)))
+        ..line_to(origin.add(Math.Vec2(222.0, 104.0)))
+        ..line_to(origin.add(Math.Vec2(251.0, 141.0)))
+        ..line_to(origin.add(Math.Vec2(211.0, 128.0)))
+        ..line_to(origin.add(Math.Vec2(185.0, 151.0)))
+        ..line_to(origin.add(Math.Vec2(194.0, 113.0)))
+        ..close()
+    painter.fill(concave, Canvas.Fill.solid(Color.rose_400().with_alpha(0.8)))
+}
+
+func paint_freeform(painter:&Canvas.Painter, font:Canvas.Font, origin:Math.Vec2) {
+    card(painter, font, "Forme libre fermée", origin, Math.Vec2(275.0, 195.0))
+    var blob = Canvas.Path()
+        ..move_to(origin.add(Math.Vec2(36.0, 112.0)))
+        ..cubic_to(origin.add(Math.Vec2(18.0, 57.0)), origin.add(Math.Vec2(80.0, 48.0)), origin.add(Math.Vec2(112.0, 72.0)))
+        ..cubic_to(origin.add(Math.Vec2(145.0, 35.0)), origin.add(Math.Vec2(180.0, 61.0)), origin.add(Math.Vec2(188.0, 88.0)))
+        ..cubic_to(origin.add(Math.Vec2(258.0, 82.0)), origin.add(Math.Vec2(260.0, 142.0)), origin.add(Math.Vec2(205.0, 145.0)))
+        ..cubic_to(origin.add(Math.Vec2(165.0, 166.0)), origin.add(Math.Vec2(145.0, 119.0)), origin.add(Math.Vec2(108.0, 150.0)))
+        ..cubic_to(origin.add(Math.Vec2(68.0, 170.0)), origin.add(Math.Vec2(28.0, 153.0)), origin.add(Math.Vec2(36.0, 112.0)))
+        ..close()
+    let brush = Canvas.Brush.linear(
+        start:origin.add(Math.Vec2(30.0, 60.0)),
+        end:origin.add(Math.Vec2(245.0, 155.0)),
+        start_color:Color.pink_400().with_alpha(0.35),
+        end_color:Color.violet_500().with_alpha(0.8)
+    )
+    painter.fill(blob, Canvas.Fill.with_brush(brush))
+    painter.stroke(blob, Canvas.Stroke(Color.pink_300(), 3.0)..join = Canvas.StrokeJoin.round)
+}
+
+func paint_arrows(painter:&Canvas.Painter, font:Canvas.Font, origin:Math.Vec2) {
+    card(painter, font, "Flèches composées", origin, Math.Vec2(275.0, 195.0))
+    arrow(painter, origin.add(Math.Vec2(24.0, 78.0)), origin.add(Math.Vec2(245.0, 78.0)), Color.sky_400(), 4.0)
+    arrow(painter, origin.add(Math.Vec2(24.0, 128.0)), origin.add(Math.Vec2(245.0, 128.0)), Color.rose_500(), 12.0)
+    label(painter, font, "même intention, deux poids", origin.add(Math.Vec2(55.0, 155.0)), 11.0)
+}
+
+func paint_layering(painter:&Canvas.Painter, font:Canvas.Font, origin:Math.Vec2) {
+    card(painter, font, "Transparence et superposition", origin, Math.Vec2(275.0, 195.0))
+    painter.fill(Canvas.Circle(origin.add(Math.Vec2(102.0, 108.0)), 49.0), Canvas.Fill.solid(Color.green_400().with_alpha(0.48)))
+    painter.fill(Canvas.Rect(origin.add(Math.Vec2(106.0, 72.0)), Math.Vec2(92.0, 72.0)), Canvas.Fill.solid(Color.rose_400().with_alpha(0.5)))
+    painter.fill(polygon(origin.add(Math.Vec2(176.0, 119.0)), 53.0, 3, -Math.pi() * 0.5), Canvas.Fill.solid(Color.blue_400().with_alpha(0.5)))
+    painter.stroke(Canvas.Circle(origin.add(Math.Vec2(102.0, 108.0)), 49.0), Canvas.Stroke(Color.green_300(), 2.0))
+    painter.stroke(Canvas.Rect(origin.add(Math.Vec2(106.0, 72.0)), Math.Vec2(92.0, 72.0)), Canvas.Stroke(Color.rose_300(), 2.0))
+}
+
+func paint_gallery(painter:&Canvas.Painter, font:Canvas.Font) {
+    painter.fill(
+        Canvas.Rect(
+            Math.Vec2(),
+            Math.Vec2(
+                Constants.canvas_width as float,
+                Constants.canvas_height as float
+            ),
+            18.0
+        ),
+        Canvas.Fill.solid(Color.slate_950())
+    )
+    label(painter, font, "GFX.Canvas — galerie de formes 2D", Math.Vec2(28.0, 20.0), 26.0, Color.white())
+    label(
+        painter,
+        font,
+        "Primitives simples, chemins libres, styles, dégradés et composition",
+        Math.Vec2(30.0, 51.0),
+        13.0,
+        Color.slate_400()
+    )
+
+    let left = 20.0
+    let top = 86.0
+    let column = 288.0
+    let row = 208.0
+    paint_lines(painter, font, Math.Vec2(left, top))
+    paint_dashes(painter, font, Math.Vec2(left + column, top))
+    paint_paths(painter, font, Math.Vec2(left + column * 2.0, top))
+    paint_curves(painter, font, Math.Vec2(left + column * 3.0, top))
+    paint_round_shapes(painter, font, Math.Vec2(left, top + row))
+    paint_arcs(painter, font, Math.Vec2(left + column, top + row))
+    paint_rectangles(painter, font, Math.Vec2(left + column * 2.0, top + row))
+    paint_polygons(painter, font, Math.Vec2(left + column * 3.0, top + row))
+    paint_special_polygons(painter, font, Math.Vec2(left, top + row * 2.0))
+    paint_freeform(painter, font, Math.Vec2(left + column, top + row * 2.0))
+    paint_arrows(painter, font, Math.Vec2(left + column * 2.0, top + row * 2.0))
+    paint_layering(painter, font, Math.Vec2(left + column * 3.0, top + row * 2.0))
+}
+
+func main() {
+    var font = Canvas.Font.default()
+    var gallery = Canvas()
+    gallery.paint(func(painter:&Canvas.Painter) { paint_gallery(painter, font) })
+    let image = gallery.rasterize(Constants.canvas_width, Constants.canvas_height)
+    assert(gallery.command_count() > 50)
+    assert(image.width() == Constants.canvas_width)
+    assert(image.height() == Constants.canvas_height)
+    Viewer.show(gallery, Viewer.CanvasSettings(
+        width:Constants.canvas_width + 40,
+        height:Constants.canvas_height + 40,
+        title:"GFX.Canvas — Shape gallery",
+        background:Color.black()
+    ))
+}

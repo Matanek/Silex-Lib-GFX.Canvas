@@ -1,0 +1,38 @@
+use GFX.Color
+use GFX.Canvas
+use STD.Math
+
+test "flatten smooth filled curves without runaway subdivision" {
+    var path = Canvas.Path()..move_to(Math.Vec2(20.0, 90.0))
+    var index = 1
+    while index <= 5 {
+        let previous = Math.Vec2(
+            20.0 + (index - 1) as float * 80.0,
+            90.0 - (index % 3) as float * 24.0
+        )
+        let point = Math.Vec2(
+            20.0 + index as float * 80.0,
+            90.0 - ((index + 1) % 3) as float * 24.0
+        )
+        path.cubic_to(
+            Math.Vec2(previous.x + 26.0, previous.y),
+            Math.Vec2(point.x - 26.0, point.y),
+            point
+        )
+        index++
+    }
+    path.line_to(Math.Vec2(420.0, 140.0))
+    path.cubic_to(
+        Math.Vec2(290.0, 140.0),
+        Math.Vec2(150.0, 140.0),
+        Math.Vec2(20.0, 140.0)
+    )
+    path.close()
+
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.fill(path, Canvas.Fill.solid(Color.teal_600().with_alpha(0.4)))
+    })
+    let geometry = drawing.vector_geometry()
+    assert(geometry.triangle_count() < 500, "smooth fill geometry stays bounded")
+}
