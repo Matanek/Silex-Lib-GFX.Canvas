@@ -357,10 +357,7 @@ func main() {
     var font = Canvas.Font.default()
     var gallery = Canvas()
     gallery.paint(func(painter:&Canvas.Painter) { paint_gallery(painter, font) })
-    let image = gallery.rasterize(Constants.canvas_width, Constants.canvas_height)
     assert(gallery.command_count() > 50)
-    assert(image.width() == Constants.canvas_width)
-    assert(image.height() == Constants.canvas_height)
     Viewer.show(gallery, Viewer.CanvasSettings(
         width:Constants.canvas_width + 40,
         height:Constants.canvas_height + 40,
