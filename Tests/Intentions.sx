@@ -27,3 +27,37 @@ test "paint and clear a canvas without SDL or a renderer" {
     assert(canvas.is_empty())
     assert(canvas.revision() == 4)
 }
+
+test "reuse cached text while vector geometry changes" {
+    var first = Canvas()
+    first.paint(func(painter:&Painter) {
+        painter.text("Static label", Math.Vec2(4.0, 4.0))
+        painter.fill(
+            Rect(Math.Vec2(), Math.Vec2(8.0)),
+            Fill.solid(Color.cyan_500())
+        )
+    })
+    var previous = first.snapshot(160, 40)
+    let first_text = previous.text_layer(2.0)
+    assert(previous.has_cached_text())
+
+    var changed_geometry = Canvas()
+    changed_geometry.paint(func(painter:&Painter) {
+        painter.text("Static label", Math.Vec2(4.0, 4.0))
+        painter.fill(
+            Rect(Math.Vec2(), Math.Vec2(16.0)),
+            Fill.solid(Color.cyan_500())
+        )
+    })
+    var reused = changed_geometry.snapshot(160, 40, reuse:previous)
+    assert(reused.has_cached_text())
+    assert(reused.text_revision() == previous.text_revision())
+
+    var changed_text = Canvas()
+    changed_text.paint(func(painter:&Painter) {
+        painter.text("Changed label", Math.Vec2(4.0, 4.0))
+    })
+    var invalidated = changed_text.snapshot(160, 40, reuse:reused)
+    assert(!invalidated.has_cached_text())
+    assert(invalidated.text_revision() != reused.text_revision())
+}

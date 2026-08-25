@@ -6,7 +6,9 @@ use STD.Math
 
 public class Snapshot {
     private static var next_identity:int = 1
+    private static var next_text_revision:int = 1
     private let identity:int
+    private var retained_text_revision:int
     private let retained_geometry:Mesh
     private var retained_text:Rasterizer.TextImage? = null
     private let text_commands:Command[]
@@ -17,6 +19,8 @@ public class Snapshot {
     init() {
         self.identity = Snapshot.next_identity
         Snapshot.next_identity++
+        self.retained_text_revision = Snapshot.next_text_revision
+        Snapshot.next_text_revision++
         self.retained_geometry = Mesh()
         self.text_commands = []
         self.text_width = 1
@@ -27,6 +31,8 @@ public class Snapshot {
     module init(geometry:Mesh, commands:Command[], width:int, height:int) {
         self.identity = Snapshot.next_identity
         Snapshot.next_identity++
+        self.retained_text_revision = Snapshot.next_text_revision
+        Snapshot.next_text_revision++
         self.retained_geometry = geometry
         self.text_commands = retained_text_commands(commands)
         self.text_width = width
@@ -36,6 +42,7 @@ public class Snapshot {
 
     func geometry() Mesh { return self.retained_geometry }
     func id() int { return self.identity }
+    func text_revision() int { return self.retained_text_revision }
     func has_text() bool { return self.text_commands.count() > 0 }
     func has_cached_text() bool { return self.retained_text != null }
     func text(scale:float = 1.0) Image {
@@ -57,6 +64,15 @@ public class Snapshot {
         if let layer = self.retained_text { return layer }
         panic("GFX retained drawing could not cache its text layer")
     }
+
+    module func reuse_unchanged_text(previous:@Snapshot) {
+        if !same_text_commands(self.text_commands, previous.text_commands) { return }
+        self.retained_text_revision = previous.retained_text_revision
+        if let retained = previous.retained_text {
+            self.retained_text = retained
+            self.text_scale = previous.text_scale
+        }
+    }
 }
 
 func retained_text_commands(commands:@Command[]) Command[] {
@@ -68,4 +84,28 @@ func retained_text_commands(commands:@Command[]) Command[] {
         }
     }
     return retained
+}
+
+func same_text_commands(first:@Command[], second:@Command[]) bool {
+    if first.count() != second.count() { return false }
+    var index = 0
+    while index < first.count() {
+        var equal = false
+        match first[index] {
+            text(left) => {
+                match second[index] {
+                    text(right) => {
+                        equal = left.value == right.value &&
+                            left.position == right.position &&
+                            left.style == right.style
+                    }
+                    else => {}
+                }
+            }
+            else => {}
+        }
+        if !equal { return false }
+        index++
+    }
+    return true
 }

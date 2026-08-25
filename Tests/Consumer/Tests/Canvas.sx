@@ -17,4 +17,10 @@ test "consume the public Canvas surface" {
     assert(drawing.command_count() == 2)
     assert(image.width() == 16)
     assert(image.height() == 16)
+
+    var previous = drawing.snapshot(16, 16)
+    let text = previous.text_layer(2.0)
+    var incremental = drawing.snapshot(16, 16, reuse:previous)
+    assert(incremental.text_revision() == previous.text_revision())
+    assert(incremental.has_cached_text())
 }

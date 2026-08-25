@@ -39,6 +39,11 @@ instead of redistributing SDL3. Canvas has no dependency on Viewer or Scene2D;
 applications can add `GFX.Viewer` when they want one-call presentation or
 `GFX.Scene2D` when they want retained GPU rendering.
 
+Successive retained renderings can pass their previous `Canvas.Snapshot` to
+`snapshot(width, height, reuse:previous)`. Unchanged text preserves its cached
+glyph coverage and `text_revision()`, while vector commands remain free to
+change independently.
+
 The interactive programs under `Examples/` use the package's
 `devDependencies` to open a window through Viewer. Viewer therefore remains
 absent from the public dependency graph consumed by applications.

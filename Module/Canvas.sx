@@ -78,6 +78,15 @@ public class Canvas {
         return snapshot
     }
 
+    // Incrementally compiles a retained snapshot. Custom renderers can provide
+    // their previous snapshot so unchanged text coverage is preserved while
+    // vector geometry evolves.
+    func snapshot(width:int, height:int, reuse:@Snapshot) Snapshot {
+        var snapshot = self.snapshot(width, height)
+        snapshot.reuse_unchanged_text(reuse)
+        return snapshot
+    }
+
     module func text_image(width:int, height:int) Image {
         return Rasterizer.rasterize_text(self.current_commands, width, height)
     }

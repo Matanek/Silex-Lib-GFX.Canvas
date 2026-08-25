@@ -52,6 +52,12 @@ for command in canvas.commands() {
 at the requested density. It is an optional optimization, not a required
 representation for third-party renderers.
 
+A renderer presenting successive revisions can call
+`Canvas.snapshot(width, height, reuse:previous)`. Vector geometry is still
+compiled from the new commands, while identical text commands retain their
+text revision and cached glyph coverage. Text changes invalidate that cache
+automatically; callers never compare commands themselves.
+
 ## Surface
 
 `Canvas.Surface` is a mutable RGBA pixel surface. It accepts the same painting
