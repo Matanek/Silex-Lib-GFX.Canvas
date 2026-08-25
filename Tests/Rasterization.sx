@@ -81,6 +81,16 @@ test "use the GFX default font when TextStyle omits a font" {
     assert(visible > 40)
 }
 
+test "offer a bundled monospace font" {
+    var drawing = Canvas()
+    var font = Canvas.Font.monospace()
+    var style = Canvas.TextStyle(size:16.0, font:font)
+    let narrow = drawing.measure_text("iiiiii", style)
+    let wide = drawing.measure_text("mmmmmm", style)
+    assert(narrow.width == wide.width)
+    assert(narrow.height == wide.height)
+}
+
 test "reuse an opened font face for repeated text" {
     var font = Canvas.Font.default()
     var style = Canvas.TextStyle(size:13.25, weight:Canvas.TextWeight.bold, font:font)

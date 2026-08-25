@@ -1,6 +1,6 @@
 {
   "name": "GFX.Canvas",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Portable vector drawing, text, rasterization, snapshots, and mutable pixel surfaces.",
   "authors": ["Matanek"],
   "requires": { "silex": ">=0.39.0" },

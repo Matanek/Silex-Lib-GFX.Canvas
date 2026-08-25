@@ -3,13 +3,14 @@ use GFX.Color
 use STD.Math
 
 test "consume the public Canvas surface" {
+    var monospace = Canvas.Font.monospace()
     var drawing = Canvas()
     drawing.paint(func(painter:&Canvas.Painter) {
         painter.fill(
             Canvas.Rect(Math.Vec2(), Math.Vec2(16.0), 2.0),
             Canvas.Fill.solid(Color.indigo_500())
         )
-        painter.text("Silex", Math.Vec2(1.0), Canvas.TextStyle(size:6.0))
+        painter.text("Silex", Math.Vec2(1.0), Canvas.TextStyle(size:6.0, font:monospace))
     })
 
     let image = drawing.rasterize(16, 16)

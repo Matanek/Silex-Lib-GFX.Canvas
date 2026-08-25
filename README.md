@@ -32,11 +32,12 @@ drawing.paint(func(painter:&Canvas.Painter) {
 let image = drawing.rasterize(128, 48)
 ```
 
-The package owns its default font and complete SDL3_ttf boundary. SDL handles
-remain private, and the provider composes with `GFX.SDL3` instead of
-redistributing SDL3. Canvas has no dependency on Viewer or Scene2D; applications
-can add `GFX.Viewer` when they want one-call presentation or `GFX.Scene2D` when
-they want retained GPU rendering.
+The package embeds both its proportional default font and a reusable monospace
+font exposed by `Canvas.Font.monospace()`. It also owns the complete SDL3_ttf
+boundary. SDL handles remain private, and the provider composes with `GFX.SDL3`
+instead of redistributing SDL3. Canvas has no dependency on Viewer or Scene2D;
+applications can add `GFX.Viewer` when they want one-call presentation or
+`GFX.Scene2D` when they want retained GPU rendering.
 
 The interactive programs under `Examples/` use the package's
 `devDependencies` to open a window through Viewer. Viewer therefore remains

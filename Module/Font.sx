@@ -3,6 +3,7 @@ use Interop.Boundary
 
 public class Font {
     private static var bundled_default:Font? = null
+    private static var bundled_monospace:Font? = null
     private let source_path:str?
     private let encoded_data:str
     private let encoded_size:int
@@ -34,6 +35,13 @@ public class Font {
         if let cached = Font.bundled_default { return cached }
         var font = Font(embed_bytes("../Assets/Fonts/NotoSans.ttf"))
         Font.bundled_default = font
+        return font
+    }
+
+    static func monospace() Font {
+        if let cached = Font.bundled_monospace { return cached }
+        var font = Font(embed_bytes("../Assets/Fonts/NotoSansMono-Regular.ttf"))
+        Font.bundled_monospace = font
         return font
     }
 

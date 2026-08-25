@@ -3,12 +3,13 @@ use GFX.Color
 use STD.Math
 
 func main() {
+    var font = Canvas.Font.monospace()
     var drawing = Canvas()
     drawing.paint(func(painter:&Canvas.Painter) {
         painter.text(
             "Smoke",
             Math.Vec2(),
-            Canvas.TextStyle(size:12.0, color:Color.white())
+            Canvas.TextStyle(size:12.0, color:Color.white(), font:font)
         )
     })
     let pixels = drawing.rasterize(48, 16).pixels()
