@@ -91,6 +91,26 @@ test "offer a bundled monospace font" {
     assert(narrow.height == wide.height)
 }
 
+test "keep text advances stable across display densities" {
+    var drawing = Canvas()
+    let values = [
+        "The field keeps multiple lines.",
+        "The field keeps multiple lines. ",
+        "The field keeps multiple lines.12345"
+    ]
+    for value in values {
+        let logical = drawing.measure_text(
+            value,
+            Canvas.TextStyle(size:14.0)
+        ).width
+        let retina = drawing.measure_text(
+            value,
+            Canvas.TextStyle(size:28.0)
+        ).width / 2.0
+        assert(Math.abs(logical - retina) <= 1.0)
+    }
+}
+
 test "reuse an opened font face for repeated text" {
     var font = Canvas.Font.default()
     var style = Canvas.TextStyle(size:13.25, weight:Canvas.TextWeight.bold, font:font)

@@ -749,7 +749,7 @@ func open_uncached_font(font:Font, size:float, weight:TextWeight) uint {
     if let path = font.path() {
         let handle = C.address_bits(ttf_open_font(C.terminated_pointer(path), size as float32))
         if handle == 0 as uint { panic("GFX.Canvas could not open font '" + path + "': " + font_error()) }
-        apply_font_weight(handle, weight)
+        configure_font(handle, weight)
         return handle
     }
     let stream = C.address_bits(sdl_io_from_const_memory(
@@ -758,7 +758,7 @@ func open_uncached_font(font:Font, size:float, weight:TextWeight) uint {
     if stream == 0 as uint { panic("GFX.Canvas could not open font data: " + font_error()) }
     let handle = C.address_bits(ttf_open_font_io(C.pointer_bits(stream), 1, size as float32))
     if handle == 0 as uint { panic("GFX.Canvas could not open font: " + font_error()) }
-    apply_font_weight(handle, weight)
+    configure_font(handle, weight)
     return handle
 }
 
@@ -777,7 +777,8 @@ func font_weight_key(weight:TextWeight) int {
     return 0
 }
 
-func apply_font_weight(handle:uint, weight:TextWeight) {
+func configure_font(handle:uint, weight:TextWeight) {
+    ttf_set_font_hinting(C.pointer_bits(handle), light_subpixel_hinting())
     var style = 0 as uint32
     if weight == TextWeight.bold { style = 1 as uint32 }
     ttf_set_font_style(C.pointer_bits(handle), style)
@@ -839,6 +840,11 @@ let ttf_init = C.function<func() int32>(library:Boundary.SDL3_ttf, name:"TTF_Ini
 let ttf_was_init = C.function<func() int32>(library:Boundary.SDL3_ttf, name:"TTF_WasInit")
 let ttf_open_font = C.function<func(C.Pointer<uint8>, float32) C.Pointer<uint8> >(library:Boundary.SDL3_ttf, name:"TTF_OpenFont")
 let ttf_open_font_io = C.function<func(C.Pointer<uint8>, int32, float32) C.Pointer<uint8> >(library:Boundary.SDL3_ttf, name:"TTF_OpenFontIO")
+let ttf_set_font_hinting = C.function<func(C.Pointer<uint8>, int32) void>(library:Boundary.SDL3_ttf, name:"TTF_SetFontHinting")
+
+// SDL_ttf's TTF_HINTING_LIGHT_SUBPIXEL keeps advances proportional while
+// retaining light grid fitting for glyph edges.
+func light_subpixel_hinting() int32 { return 4 as int32 }
 let ttf_close_font = C.function<func(C.Pointer<uint8>) void>(library:Boundary.SDL3_ttf, name:"TTF_CloseFont")
 let ttf_set_font_style = C.function<func(C.Pointer<uint8>, uint32) void>(library:Boundary.SDL3_ttf, name:"TTF_SetFontStyle")
 let ttf_get_string_size = C.function<func(C.Pointer<uint8>, C.Pointer<uint8>, C.Size, C.MutablePointer<int32>, C.MutablePointer<int32>) int32>(library:Boundary.SDL3_ttf, name:"TTF_GetStringSize")

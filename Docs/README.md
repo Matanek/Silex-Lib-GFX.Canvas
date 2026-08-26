@@ -29,7 +29,9 @@ let image = canvas.rasterize(128, 48)
 Text uses `SDL3_ttf` behind the `Canvas.Font` API. GFX.Canvas embeds the
 proportional `Canvas.Font.default()` and the terminal/editor-oriented
 `Canvas.Font.monospace()`; an application may also supply a path or encoded
-bytes. No SDL handle is public.
+bytes. Text advances remain proportional across display densities so measured
+layout positions stay aligned with high-density rasterization. No SDL handle
+is public.
 
 ## Reuse drawing intentions
 
