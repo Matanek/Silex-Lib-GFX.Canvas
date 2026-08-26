@@ -126,6 +126,58 @@ test "reuse an opened font face for repeated text" {
     assert(after_second == after_first)
 }
 
+test "reuse cached text coverage across colors and drawings" {
+    var font = Canvas.Font.default()
+    var first = Canvas()
+    first.paint(func(painter:&Canvas.Painter) {
+        painter.text(
+            "Cached label",
+            Math.Vec2(),
+            Canvas.TextStyle(size:14.0, color:Color.cyan_500(), font:font)
+        )
+    })
+    let cyan = first.rasterize(120, 24)
+    assert(font.cached_raster_count() == 1)
+
+    var second = Canvas()
+    second.paint(func(painter:&Canvas.Painter) {
+        painter.text(
+            "Cached label",
+            Math.Vec2(),
+            Canvas.TextStyle(size:14.0, color:Color.orange_500(), font:font)
+        )
+    })
+    let orange = second.rasterize(120, 24)
+    assert(font.cached_raster_count() == 1)
+    assert(cyan.packed_pixels() != orange.packed_pixels())
+
+    let metrics = second.measure_text(
+        "Cached label",
+        Canvas.TextStyle(size:14.0, font:font)
+    )
+    assert(metrics.width > 0.0)
+    assert(metrics.height > 0.0)
+    assert(font.cached_raster_count() == 1)
+}
+
+test "bound the cached text coverage" {
+    var font = Canvas.Font.default()
+    var index = 0
+    while index < 300 {
+        var drawing = Canvas()
+        drawing.paint(func(painter:&Canvas.Painter) {
+            painter.text(
+                "Label $(index)",
+                Math.Vec2(),
+                Canvas.TextStyle(size:12.0, font:font)
+            )
+        })
+        let image = drawing.rasterize(96, 20)
+        index++
+    }
+    assert(font.cached_raster_count() == 256)
+}
+
 test "rasterize retained text at the display pixel density" {
     var drawing = Canvas()
     drawing.paint(func(painter:&Canvas.Painter) {

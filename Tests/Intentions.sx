@@ -61,3 +61,29 @@ test "reuse cached text while vector geometry changes" {
     assert(!invalidated.has_cached_text())
     assert(invalidated.text_revision() != reused.text_revision())
 }
+
+test "retain unchanged text layers while one label changes" {
+    var first = Canvas()
+    first.paint(func(painter:&Painter) {
+        painter.text("Static", Math.Vec2(2.0, 2.0))
+        painter.text("50%", Math.Vec2(2.0, 20.0))
+    })
+    var previous = first.snapshot(120, 40)
+    var previous_layers = previous.text_layers()
+    assert(previous_layers.count() == 2)
+    let static_revision = previous_layers[0].revision()
+    let value_revision = previous_layers[1].revision()
+
+    var changed = Canvas()
+    changed.paint(func(painter:&Painter) {
+        painter.text("Static", Math.Vec2(2.0, 2.0))
+        painter.text("51%", Math.Vec2(2.0, 20.0))
+    })
+    var retained = changed.snapshot(120, 40, reuse:previous)
+    var retained_layers = retained.text_layers()
+    assert(retained_layers.count() == 2)
+    assert(retained_layers[0].id() == previous_layers[0].id())
+    assert(retained_layers[0].revision() == static_revision)
+    assert(retained_layers[1].id() == previous_layers[1].id())
+    assert(retained_layers[1].revision() == value_revision + 1)
+}

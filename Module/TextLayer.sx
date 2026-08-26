@@ -1,0 +1,100 @@
+use GFX.Canvas.Command
+use GFX.Canvas.Rasterizer
+use STD.Math
+
+// A retained text command keeps its cache identity while its content changes.
+// Custom renderers can therefore update one small text texture independently.
+public class TextLayer {
+    private static var next_identity:int = 1
+    private let current_identity:int
+    private let current_revision:int
+    private var current_command:Command? = null
+    private let canvas_width:int
+    private let canvas_height:int
+    private var retained:Rasterizer.TextImage? = null
+    private var retained_scale:float = 1.0
+
+    module init(command:Command, width:int, height:int) {
+        self.current_identity = TextLayer.next_identity
+        TextLayer.next_identity++
+        self.current_revision = 1
+        self.current_command = command
+        self.canvas_width = width
+        self.canvas_height = height
+    }
+
+    private init(
+        command:Command,
+        width:int,
+        height:int,
+        identity:int,
+        revision:int
+    ) {
+        self.current_identity = identity
+        self.current_revision = revision
+        self.current_command = command
+        self.canvas_width = width
+        self.canvas_height = height
+    }
+
+    module static func retain(
+        command:Command,
+        width:int,
+        height:int,
+        previous:TextLayer
+    ) TextLayer {
+        if same_text(command, previous.command()) &&
+            width == previous.canvas_width && height == previous.canvas_height
+        {
+            return previous
+        }
+        return TextLayer(
+            command,
+            width,
+            height,
+            previous.current_identity,
+            previous.current_revision + 1
+        )
+    }
+
+    func id() int { return self.current_identity }
+    func revision() int { return self.current_revision }
+
+    private func command() Command {
+        if let command = self.current_command { return command }
+        panic("GFX.Canvas retained text layer has no command")
+    }
+
+    func text_layer(scale:float = 1.0) Rasterizer.TextImage {
+        if scale <= 0.0 { panic("GFX.Canvas text raster scale must be positive") }
+        if !Math.nearly_equal(scale, self.retained_scale) || self.retained == null {
+            var commands:Command[] = [self.command()]
+            self.retained = Rasterizer.rasterize_cropped_text(
+                commands,
+                self.canvas_width,
+                self.canvas_height,
+                scale
+            )
+            self.retained_scale = scale
+        }
+        if let content = self.retained { return content }
+        panic("GFX.Canvas could not cache a retained text layer")
+    }
+}
+
+func same_text(first:@Command, second:@Command) bool {
+    match first {
+        text(left) => {
+            match second {
+                text(right) => {
+                    return left.value == right.value &&
+                        left.position == right.position &&
+                        left.style == right.style
+                }
+                else => {}
+            }
+        }
+        else => {}
+    }
+    return false
+}

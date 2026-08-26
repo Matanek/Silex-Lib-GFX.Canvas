@@ -42,7 +42,10 @@ applications can add `GFX.Viewer` when they want one-call presentation or
 Successive retained renderings can pass their previous `Canvas.Snapshot` to
 `snapshot(width, height, reuse:previous)`. Unchanged text preserves its cached
 glyph coverage and `text_revision()`, while vector commands remain free to
-change independently.
+change independently. `Snapshot.text_layers()` additionally exposes stable
+per-command identities to retained renderers, so changing one label does not
+invalidate every other text texture. SDL_ttf coverage is cached by bounded
+font, size, weight and content keys.
 
 The interactive programs under `Examples/` use the package's
 `devDependencies` to open a window through Viewer. Viewer therefore remains

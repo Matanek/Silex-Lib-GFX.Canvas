@@ -10,6 +10,7 @@ use GFX.Canvas.Styles.TextMetrics
 use GFX.Canvas.Styles.TextStyle
 use GFX.Canvas.Styles.TextWeight
 use GFX.Canvas.Font.Font
+use GFX.Canvas.Font.TextRaster
 use STD.Math
 use STD.Text.UTF8
 use Interop.Boundary
@@ -660,6 +661,15 @@ func near_polyline(point:Math.Vec2, line:@Polyline, radius:float) bool {
 }
 
 func measure_font_text(value:str, size:float, weight:TextWeight, font:Font) TextMetrics {
+    if let raster = font.cached_raster(value, size, font_weight_key(weight)) {
+        var lines = 1
+        for scalar in UTF8.scalars(value) { if scalar == 10 { lines++ } }
+        return TextMetrics(
+            width:raster.width as float,
+            height:raster.height as float,
+            lines:lines
+        )
+    }
     let handle = cached_font(font, size, weight)
     var measured_width:int32 = 0
     var measured_height:int32 = 0
@@ -684,11 +694,60 @@ func draw_font_text(
     font:Font
 ) {
     if value == "" { return }
-    let handle = cached_font(font, style.size, style.weight)
+    let raster = cached_text_raster(value, style.size, style.weight, font)
+    var origin_x = position.x
+    if style.alignment == TextAlignment.center { origin_x -= raster.width as float * 0.5 }
+    if style.alignment == TextAlignment.end { origin_x -= raster.width as float }
+    let destination_x = Math.floor(origin_x) as int
+    let destination_y = Math.floor(position.y) as int
+    let source = C.address_bits(C.pointer(raster.alpha))
+    let color = Color.bytes(
+        color_channel(style.color.r),
+        color_channel(style.color.g),
+        color_channel(style.color.b),
+        color_channel(style.color.a)
+    )
+    var source_y = 0
+    while source_y < raster.height {
+        let target_y = destination_y + source_y
+        if target_y >= 0 && target_y < height {
+            var source_x = 0
+            while source_x < raster.width {
+                let target_x = destination_x + source_x
+                if target_x >= 0 && target_x < width {
+                    let alpha = C.load<uint8>(
+                        source,
+                        (source_y * raster.width + source_x) as uint
+                    )
+                    if alpha > 0 {
+                        blend(
+                            address,
+                            (target_y * width + target_x) * 4,
+                            color,
+                            alpha as float / 255.0
+                        )
+                    }
+                }
+                source_x++
+            }
+        }
+        source_y++
+    }
+}
+
+func cached_text_raster(
+    value:str,
+    size:float,
+    weight:TextWeight,
+    font:Font
+) TextRaster {
+    let key = font_weight_key(weight)
+    if let cached = font.cached_raster(value, size, key) { return cached }
+    let handle = cached_font(font, size, weight)
     let compact = value
     let rendered = C.address_bits(ttf_render_text_blended(
         C.pointer_bits(handle), C.pointer(compact), C.byte_count(compact) as C.Size,
-        packed_color(style.color)
+        packed_color(Color.white())
     ))
     if rendered == 0 as uint { panic("GFX.Canvas could not render text: " + font_error()) }
 
@@ -705,41 +764,28 @@ func draw_font_text(
     let source_height = C.load<int32>(converted, 12 as uint) as int
     let source_pitch = C.load<int32>(converted, 16 as uint) as int
     let source = C.load<uint>(converted, 24 as uint)
-    var origin_x = position.x
-    if style.alignment == TextAlignment.center { origin_x -= source_width as float * 0.5 }
-    if style.alignment == TextAlignment.end { origin_x -= source_width as float }
-    let destination_x = Math.floor(origin_x) as int
-    let destination_y = Math.floor(position.y) as int
+    var alpha = packed_storage(source_width * source_height)
+    let alpha_address = C.address_bits(C.mutable_string_pointer(alpha))
     var source_y = 0
     while source_y < source_height {
-        let target_y = destination_y + source_y
-        if target_y >= 0 && target_y < height {
-            var source_x = 0
-            while source_x < source_width {
-                let target_x = destination_x + source_x
-                if target_x >= 0 && target_x < width {
-                    let offset = source_y * source_pitch + source_x * 4
-                    let alpha = C.load<uint8>(source, (offset + 3) as uint)
-                    if alpha > 0 {
-                        blend(
-                            address, (target_y * width + target_x) * 4,
-                            Color.bytes(
-                                C.load<uint8>(source, offset as uint),
-                                C.load<uint8>(source, (offset + 1) as uint),
-                                C.load<uint8>(source, (offset + 2) as uint),
-                                alpha
-                            ),
-                            1.0
-                        )
-                    }
-                }
-                source_x++
-            }
+        var source_x = 0
+        while source_x < source_width {
+            let source_offset = source_y * source_pitch + source_x * 4 + 3
+            let target_offset = source_y * source_width + source_x
+            let stored = C.store<uint8>(
+                alpha_address,
+                target_offset as uint,
+                C.load<uint8>(source, source_offset as uint)
+            )
+            source_x++
         }
         source_y++
     }
     sdl_unlock_surface(C.pointer_bits(converted))
     sdl_destroy_surface(C.pointer_bits(converted))
+    let raster = TextRaster(width:source_width, height:source_height, alpha:alpha)
+    font.retain_raster(value, size, key, raster)
+    return raster
 }
 
 func open_uncached_font(font:Font, size:float, weight:TextWeight) uint {

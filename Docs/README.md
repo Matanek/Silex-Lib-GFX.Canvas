@@ -57,8 +57,12 @@ representation for third-party renderers.
 A renderer presenting successive revisions can call
 `Canvas.snapshot(width, height, reuse:previous)`. Vector geometry is still
 compiled from the new commands, while identical text commands retain their
-text revision and cached glyph coverage. Text changes invalidate that cache
-automatically; callers never compare commands themselves.
+text revision and cached glyph coverage. `Snapshot.text_layers()` gives each
+text command a stable identity and its own lazy coverage image. A renderer can
+therefore preserve static labels while uploading only a changed value. Text
+changes invalidate the corresponding layer automatically; callers never
+compare commands themselves. Font coverage uses a bounded 256-entry cache so
+repeated labels avoid another SDL_ttf render without unbounded growth.
 
 ## Surface
 

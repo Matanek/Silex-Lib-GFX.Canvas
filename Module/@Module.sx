@@ -22,3 +22,4 @@ public use GFX.Canvas.Styles.TextMetrics
 public use GFX.Canvas.Styles.TextStyle
 public use GFX.Canvas.Styles.TextWeight
 public use GFX.Canvas.Surface.Surface
+public use GFX.Canvas.TextLayer.TextLayer

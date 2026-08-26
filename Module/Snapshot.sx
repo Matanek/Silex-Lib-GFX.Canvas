@@ -2,6 +2,7 @@ use GFX.Assets.Image
 use GFX.Canvas.Geometry.Mesh
 use GFX.Canvas.Command
 use GFX.Canvas.Rasterizer
+use GFX.Canvas.TextLayer.TextLayer
 use STD.Math
 
 public class Snapshot {
@@ -12,6 +13,7 @@ public class Snapshot {
     private let retained_geometry:Mesh
     private var retained_text:Rasterizer.TextImage? = null
     private let text_commands:Command[]
+    private var retained_text_layers:TextLayer[]
     private let text_width:int
     private let text_height:int
     private var text_scale:float
@@ -23,6 +25,7 @@ public class Snapshot {
         Snapshot.next_text_revision++
         self.retained_geometry = Mesh()
         self.text_commands = []
+        self.retained_text_layers = []
         self.text_width = 1
         self.text_height = 1
         self.text_scale = 1.0
@@ -34,7 +37,13 @@ public class Snapshot {
         self.retained_text_revision = Snapshot.next_text_revision
         Snapshot.next_text_revision++
         self.retained_geometry = geometry
-        self.text_commands = retained_text_commands(commands)
+        var retained_commands = retained_text_commands(commands)
+        self.text_commands = retained_commands
+        self.retained_text_layers = create_text_layers(
+            retained_commands,
+            width,
+            height
+        )
         self.text_width = width
         self.text_height = height
         self.text_scale = 1.0
@@ -44,6 +53,7 @@ public class Snapshot {
     func id() int { return self.identity }
     func text_revision() int { return self.retained_text_revision }
     func has_text() bool { return self.text_commands.count() > 0 }
+    func text_layers() TextLayer[] { return self.retained_text_layers }
     func has_cached_text() bool { return self.retained_text != null }
     func text(scale:float = 1.0) Image {
         if !Math.nearly_equal(scale, self.text_scale) || self.retained_text == null {
@@ -66,6 +76,7 @@ public class Snapshot {
     }
 
     module func reuse_unchanged_text(previous:@Snapshot) {
+        self.retain_text_layers(previous)
         if !same_text_commands(self.text_commands, previous.text_commands) { return }
         self.retained_text_revision = previous.retained_text_revision
         if let retained = previous.retained_text {
@@ -73,6 +84,39 @@ public class Snapshot {
             self.text_scale = previous.text_scale
         }
     }
+
+    private func retain_text_layers(previous:@Snapshot) {
+        var retained:TextLayer[] = []
+        var index = 0
+        while index < self.text_commands.count() {
+            if index < previous.retained_text_layers.count() {
+                retained.append(TextLayer.retain(
+                    self.text_commands[index],
+                    self.text_width,
+                    self.text_height,
+                    previous.retained_text_layers[index]
+                ))
+            } else {
+                retained.append(TextLayer(
+                    self.text_commands[index],
+                    self.text_width,
+                    self.text_height
+                ))
+            }
+            index++
+        }
+        self.retained_text_layers = retained
+    }
+}
+
+func create_text_layers(
+    commands:@Command[],
+    width:int,
+    height:int
+) TextLayer[] {
+    var result:TextLayer[] = []
+    for command in commands { result.append(TextLayer(command, width, height)) }
+    return result
 }
 
 func retained_text_commands(commands:@Command[]) Command[] {

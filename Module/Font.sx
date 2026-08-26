@@ -1,7 +1,14 @@
 use Interop.C
 use Interop.Boundary
 
+module struct TextRaster {
+    let width:int
+    let height:int
+    let alpha:str
+}
+
 public class Font {
+    private static let raster_cache_capacity:int = 256
     private static var bundled_default:Font? = null
     private static var bundled_monospace:Font? = null
     private let source_path:str?
@@ -10,6 +17,13 @@ public class Font {
     private var face_sizes:float[]
     private var face_weights:int[]
     private var face_handles:uint[]
+    private var raster_values:str[]
+    private var raster_sizes:float[]
+    private var raster_weights:int[]
+    private var raster_widths:int[]
+    private var raster_heights:int[]
+    private var raster_alpha:str[]
+    private var next_raster:int
 
     init(source:uint8[]) {
         if source.count() == 0 { panic("GFX.Canvas font data cannot be empty") }
@@ -19,6 +33,13 @@ public class Font {
         self.face_sizes = []
         self.face_weights = []
         self.face_handles = []
+        self.raster_values = []
+        self.raster_sizes = []
+        self.raster_weights = []
+        self.raster_widths = []
+        self.raster_heights = []
+        self.raster_alpha = []
+        self.next_raster = 0
     }
 
     init(source:str) {
@@ -29,6 +50,13 @@ public class Font {
         self.face_sizes = []
         self.face_weights = []
         self.face_handles = []
+        self.raster_values = []
+        self.raster_sizes = []
+        self.raster_weights = []
+        self.raster_widths = []
+        self.raster_heights = []
+        self.raster_alpha = []
+        self.next_raster = 0
     }
 
     static func default() Font {
@@ -57,6 +85,7 @@ public class Font {
     module func packed_data() str { return self.encoded_data }
     module func byte_count() int { return self.encoded_size }
     package func cached_face_count() int { return self.face_handles.count() }
+    package func cached_raster_count() int { return self.raster_values.count() }
 
     module func cached_face(size:float, weight:int) uint? {
         var index = 0
@@ -91,6 +120,53 @@ public class Font {
         self.face_weights.append(weight)
         self.face_handles.append(handle)
         return evicted
+    }
+
+    module func cached_raster(
+        value:str,
+        size:float,
+        weight:int
+    ) TextRaster? {
+        var index = 0
+        while index < self.raster_values.count() {
+            if self.raster_values[index] == value &&
+                self.raster_sizes[index] == size &&
+                self.raster_weights[index] == weight
+            {
+                return TextRaster(
+                    width:self.raster_widths[index],
+                    height:self.raster_heights[index],
+                    alpha:self.raster_alpha[index]
+                )
+            }
+            index++
+        }
+        return null
+    }
+
+    module func retain_raster(
+        value:str,
+        size:float,
+        weight:int,
+        raster:TextRaster
+    ) {
+        if self.raster_values.count() < Font.raster_cache_capacity {
+            self.raster_values.append(value)
+            self.raster_sizes.append(size)
+            self.raster_weights.append(weight)
+            self.raster_widths.append(raster.width)
+            self.raster_heights.append(raster.height)
+            self.raster_alpha.append(raster.alpha)
+            return
+        }
+        let index = self.next_raster
+        self.raster_values.replace(index, value)
+        self.raster_sizes.replace(index, size)
+        self.raster_weights.replace(index, weight)
+        self.raster_widths.replace(index, raster.width)
+        self.raster_heights.replace(index, raster.height)
+        self.raster_alpha.replace(index, raster.alpha)
+        self.next_raster = (index + 1) % Font.raster_cache_capacity
     }
 }
 
