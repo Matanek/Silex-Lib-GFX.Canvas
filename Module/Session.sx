@@ -1,0 +1,20 @@
+use GFX.Canvas.Canvas.Canvas
+use GFX.Input.Events
+
+// A platform-neutral interactive source of Canvas drawings. The owner keeps
+// its state; a presenter such as GFX.Viewer only drives this contract.
+public protocol Session {
+    func drawing(width:int, height:int) Canvas
+    func update(delta:float) bool
+    func handle(event:@Events.Event) bool
+    func accepts_text_input() bool
+}
+
+// Keeps the protocol's dynamic table complete even when a consumer only uses
+// static Canvas drawings and defines no interactive session of its own.
+package struct EmptySession:Session {
+    func drawing(width:int, height:int) Canvas { return Canvas() }
+    func update(delta:float) bool { return false }
+    func handle(event:@Events.Event) bool { return false }
+    func accepts_text_input() bool { return false }
+}

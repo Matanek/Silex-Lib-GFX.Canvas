@@ -1,6 +1,14 @@
 use GFX.Canvas
 use GFX.Color
+use GFX.Input
 use STD.Math
+
+struct ConsumerSession:Canvas.Session {
+    func drawing(width:int, height:int) Canvas { return Canvas() }
+    func update(delta:float) bool { return false }
+    func handle(event:@Input.Event) bool { return false }
+    func accepts_text_input() bool { return false }
+}
 
 test "consume the public Canvas surface" {
     var monospace = Canvas.Font.monospace()
@@ -27,4 +35,11 @@ test "consume the public Canvas surface" {
     var incremental = drawing.snapshot(16, 16, reuse:previous)
     assert(incremental.text_revision() == previous.text_revision())
     assert(incremental.has_cached_text())
+}
+
+test "consume the interactive Canvas session contract" {
+    var session = ConsumerSession()
+    assert(!session.update(0.016))
+    assert(!session.accepts_text_input())
+    assert(session.drawing(32, 24).command_count() == 0)
 }

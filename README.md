@@ -39,6 +39,12 @@ instead of redistributing SDL3. Canvas has no dependency on Viewer or Scene2D;
 applications can add `GFX.Viewer` when they want one-call presentation or
 `GFX.Scene2D` when they want retained GPU rendering.
 
+`Canvas.Session` is the platform-neutral contract for an interactive Canvas
+producer. It owns drawing, update, input and text-input intentions without
+owning a window, an Application loop or an ECS world. Presenters such as
+`GFX.Viewer` drive that contract; UI packages can adapt their own retained
+state to it.
+
 Successive retained renderings can pass their previous `Canvas.Snapshot` to
 `snapshot(width, height, reuse:previous)`. Unchanged text preserves its cached
 glyph coverage and `text_revision()`, while vector commands remain free to

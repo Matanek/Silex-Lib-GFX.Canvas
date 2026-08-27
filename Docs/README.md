@@ -84,3 +84,22 @@ Viewer.show(canvas, 960, 640, "Generated drawing")
 `ShapeGallery2D.sx` exercises lines, caps, joins, paths, curves, analytic
 shapes, gradients, transparency, layering and text in one retained gallery
 presented by Viewer. The other examples display rasterized images and surfaces.
+
+## Interactive drawings
+
+`Canvas.Session` describes a stateful Canvas producer without choosing its
+presentation architecture:
+
+```sx
+class Preview:Canvas.Session {
+    func drawing(width:int, height:int) Canvas { return build(width, height) }
+    func update(delta:float) bool { return advance(delta) }
+    func handle(event:@GFX.Input.Event) bool { return interact(event) }
+    func accepts_text_input() bool { return editing() }
+}
+```
+
+The boolean results invalidate the current drawing. The session retains its
+own state and receives platform input, but it does not own a window,
+Application, renderer or ECS world. `GFX.Viewer` is one optional presenter for
+this contract.
