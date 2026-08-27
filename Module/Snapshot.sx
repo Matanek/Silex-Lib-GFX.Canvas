@@ -3,12 +3,16 @@ use GFX.Canvas.Geometry.Mesh
 use GFX.Canvas.Command
 use GFX.Canvas.Rasterizer
 use GFX.Canvas.TextLayer.TextLayer
+use GFX.Canvas.TextLayer.text_layer_unchanged
+use GFX.Canvas.TextLayer.updated_text_layer
 use STD.Math
 
 public class Snapshot {
     private static var next_identity:int = 1
+    private static var next_geometry_revision:int = 1
     private static var next_text_revision:int = 1
     private let identity:int
+    private var retained_geometry_revision:int
     private var retained_text_revision:int
     private let retained_geometry:Mesh
     private var retained_text:Rasterizer.TextImage? = null
@@ -21,6 +25,8 @@ public class Snapshot {
     init() {
         self.identity = Snapshot.next_identity
         Snapshot.next_identity++
+        self.retained_geometry_revision = Snapshot.next_geometry_revision
+        Snapshot.next_geometry_revision++
         self.retained_text_revision = Snapshot.next_text_revision
         Snapshot.next_text_revision++
         self.retained_geometry = Mesh()
@@ -34,6 +40,8 @@ public class Snapshot {
     module init(geometry:Mesh, commands:Command[], width:int, height:int) {
         self.identity = Snapshot.next_identity
         Snapshot.next_identity++
+        self.retained_geometry_revision = Snapshot.next_geometry_revision
+        Snapshot.next_geometry_revision++
         self.retained_text_revision = Snapshot.next_text_revision
         Snapshot.next_text_revision++
         self.retained_geometry = geometry
@@ -51,6 +59,7 @@ public class Snapshot {
 
     func geometry() Mesh { return self.retained_geometry }
     func id() int { return self.identity }
+    func geometry_revision() int { return self.retained_geometry_revision }
     func text_revision() int { return self.retained_text_revision }
     func has_text() bool { return self.text_commands.count() > 0 }
     func text_layers() TextLayer[] { return self.retained_text_layers }
@@ -75,7 +84,10 @@ public class Snapshot {
         panic("GFX retained drawing could not cache its text layer")
     }
 
-    module func reuse_unchanged_text(previous:@Snapshot) {
+    module func reuse_unchanged(previous:@Snapshot) {
+        if same_geometry(self.retained_geometry, previous.retained_geometry) {
+            self.retained_geometry_revision = previous.retained_geometry_revision
+        }
         self.retain_text_layers(previous)
         if !same_text_commands(self.text_commands, previous.text_commands) { return }
         self.retained_text_revision = previous.retained_text_revision
@@ -90,12 +102,21 @@ public class Snapshot {
         var index = 0
         while index < self.text_commands.count() {
             if index < previous.retained_text_layers.count() {
-                retained.append(TextLayer.retain(
+                if text_layer_unchanged(
                     self.text_commands[index],
                     self.text_width,
                     self.text_height,
                     previous.retained_text_layers[index]
-                ))
+                ) {
+                    retained.append(previous.retained_text_layers[index])
+                } else {
+                    retained.append(updated_text_layer(
+                        self.text_commands[index],
+                        self.text_width,
+                        self.text_height,
+                        previous.retained_text_layers[index]
+                    ))
+                }
             } else {
                 retained.append(TextLayer(
                     self.text_commands[index],
@@ -107,6 +128,32 @@ public class Snapshot {
         }
         self.retained_text_layers = retained
     }
+}
+
+func same_geometry(first:@Mesh, second:@Mesh) bool {
+    let first_vertices = first.vertex_view()
+    let second_vertices = second.vertex_view()
+    if first_vertices.count() != second_vertices.count() { return false }
+    let first_indices = first.index_view()
+    let second_indices = second.index_view()
+    if first_indices.count() != second_indices.count() { return false }
+    var index = 0
+    while index < first_vertices.count() {
+        let left = first_vertices[index]
+        let right = second_vertices[index]
+        if left.position != right.position || left.normal != right.normal ||
+            left.uv != right.uv || left.color != right.color
+        {
+            return false
+        }
+        index++
+    }
+    index = 0
+    while index < first_indices.count() {
+        if first_indices[index] != second_indices[index] { return false }
+        index++
+    }
+    return true
 }
 
 func create_text_layers(

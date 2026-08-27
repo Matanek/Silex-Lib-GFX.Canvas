@@ -51,6 +51,7 @@ test "reuse cached text while vector geometry changes" {
     })
     var reused = changed_geometry.snapshot(160, 40, reuse:previous)
     assert(reused.has_cached_text())
+    assert(reused.geometry_revision() != previous.geometry_revision())
     assert(reused.text_revision() == previous.text_revision())
 
     var changed_text = Canvas()
@@ -82,6 +83,7 @@ test "retain unchanged text layers while one label changes" {
     var retained = changed.snapshot(120, 40, reuse:previous)
     var retained_layers = retained.text_layers()
     assert(retained_layers.count() == 2)
+    assert(retained.geometry_revision() == previous.geometry_revision())
     assert(retained_layers[0].id() == previous_layers[0].id())
     assert(retained_layers[0].revision() == static_revision)
     assert(retained_layers[1].id() == previous_layers[1].id())

@@ -32,6 +32,12 @@ public struct Mesh {
 
     func vertices() Vertex[] { return self.current_vertices }
     func indices() uint32[] { return self.current_indices }
+    module func vertex_view() @Vertex[..] {
+        return @self.current_vertices[0:self.current_vertices.count()]
+    }
+    module func index_view() @uint32[..] {
+        return @self.current_indices[0:self.current_indices.count()]
+    }
     func vertex_count() int { return self.current_vertices.count() }
     func index_count() int { return self.current_indices.count() }
     func triangle_count() int { return self.current_indices.count() / 3 }

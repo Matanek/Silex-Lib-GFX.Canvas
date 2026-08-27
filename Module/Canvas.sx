@@ -83,7 +83,7 @@ public class Canvas {
     // vector geometry evolves.
     func snapshot(width:int, height:int, reuse:@Snapshot) Snapshot {
         var snapshot = self.snapshot(width, height)
-        snapshot.reuse_unchanged_text(reuse)
+        snapshot.reuse_unchanged(reuse)
         return snapshot
     }
 

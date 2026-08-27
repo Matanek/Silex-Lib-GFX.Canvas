@@ -37,49 +37,66 @@ public class TextLayer {
         self.canvas_height = height
     }
 
-    module static func retain(
+    module static func updated(
         command:Command,
         width:int,
         height:int,
-        previous:TextLayer
+        identity:int,
+        revision:int
     ) TextLayer {
-        if same_text(command, previous.command()) &&
-            width == previous.canvas_width && height == previous.canvas_height
-        {
-            return previous
-        }
-        return TextLayer(
-            command,
-            width,
-            height,
-            previous.current_identity,
-            previous.current_revision + 1
-        )
+        return TextLayer(command, width, height, identity, revision)
     }
 
     func id() int { return self.current_identity }
     func revision() int { return self.current_revision }
 
-    private func command() Command {
-        if let command = self.current_command { return command }
-        panic("GFX.Canvas retained text layer has no command")
+    module func matches(command:@Command, width:int, height:int) bool {
+        if width != self.canvas_width || height != self.canvas_height { return false }
+        if let current = self.current_command { return same_text(command, current) }
+        return false
     }
 
     func text_layer(scale:float = 1.0) Rasterizer.TextImage {
         if scale <= 0.0 { panic("GFX.Canvas text raster scale must be positive") }
         if !Math.nearly_equal(scale, self.retained_scale) || self.retained == null {
-            var commands:Command[] = [self.command()]
-            self.retained = Rasterizer.rasterize_cropped_text(
-                commands,
-                self.canvas_width,
-                self.canvas_height,
-                scale
-            )
+            if let command = self.current_command {
+                var commands:Command[] = [command]
+                self.retained = Rasterizer.rasterize_cropped_text(
+                    commands,
+                    self.canvas_width,
+                    self.canvas_height,
+                    scale
+                )
+            }
             self.retained_scale = scale
         }
         if let content = self.retained { return content }
         panic("GFX.Canvas could not cache a retained text layer")
     }
+}
+
+module func text_layer_unchanged(
+    command:Command,
+    width:int,
+    height:int,
+    previous:@TextLayer
+) bool {
+    return previous.matches(command, width, height)
+}
+
+module func updated_text_layer(
+    command:Command,
+    width:int,
+    height:int,
+    previous:@TextLayer
+) TextLayer {
+    return TextLayer.updated(
+        command,
+        width,
+        height,
+        previous.id(),
+        previous.revision() + 1
+    )
 }
 
 func same_text(first:@Command, second:@Command) bool {
