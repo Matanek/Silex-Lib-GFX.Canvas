@@ -54,7 +54,9 @@ proportional and monospace text keeps its natural advances by default.
 
 The complete retained [2D shape gallery](https://github.com/Matanek/Silex-Examples/tree/main/Sources/ShapeGallery2D)
 lives in `Silex-Examples`; focused image, text, surface, and presentation usage
-is illustrated in the package documentation and verified by its tests. Viewer
+is illustrated in the package documentation and verified by its tests. The
+public [RetainedCanvasGeometry](https://github.com/Matanek/Silex-Benchmarks/blob/main/Sources/RetainedCanvasGeometry.sx)
+benchmark lives in `Silex-Benchmarks`. Viewer
 therefore remains absent from both the public and development dependency graphs
 of Canvas.
 
