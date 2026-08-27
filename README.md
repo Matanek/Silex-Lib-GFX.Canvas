@@ -9,12 +9,6 @@ renderer.
 silex install GFX.Canvas
 ```
 
-To run the interactive examples as well:
-
-```sh
-silex install GFX.Canvas --dev
-```
-
 ```silex
 use GFX.Canvas
 use GFX.Color
@@ -58,9 +52,11 @@ explicit horizontal grid while retaining one text command. This is intended
 for terminal and editor rows whose cell positions must stay exact; ordinary
 proportional and monospace text keeps its natural advances by default.
 
-The interactive programs under `Examples/` use the package's
-`devDependencies` to open a window through Viewer. Viewer therefore remains
-absent from the public dependency graph consumed by applications.
+The complete retained [2D shape gallery](https://github.com/Matanek/Silex-Examples/tree/main/Sources/ShapeGallery2D)
+lives in `Silex-Examples`; focused image, text, surface, and presentation usage
+is illustrated in the package documentation and verified by its tests. Viewer
+therefore remains absent from both the public and development dependency graphs
+of Canvas.
 
 See [Docs/README.md](Docs/README.md) for the full drawing, geometry, text and
 surface contracts.

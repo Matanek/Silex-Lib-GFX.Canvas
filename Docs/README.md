@@ -72,11 +72,8 @@ font's natural shaping and advances.
 ## Surface
 
 `Canvas.Surface` is a mutable RGBA pixel surface. It accepts the same painting
-commands, can compose images, and returns a `GFX.Assets.Image`. The interactive
-examples under `Examples/` display their results through Viewer. Their local
-development dependency owns that presentation capability; GFX.Canvas remains
-independent from Viewer and Scene2D in every consumer graph. Prepare it with
-`silex install GFX.Canvas --dev`.
+commands, can compose images, and returns a `GFX.Assets.Image`. GFX.Canvas
+remains independent from Viewer and Scene2D in every package graph.
 
 When a result needs to be displayed, `GFX.Viewer` accepts the Canvas itself and
 its authored dimensions. Viewer retains it through Scene2D and follows window
@@ -86,9 +83,11 @@ resizing without creating an intermediate image:
 Viewer.show(canvas, 960, 640, "Generated drawing")
 ```
 
-`ShapeGallery2D.sx` exercises lines, caps, joins, paths, curves, analytic
-shapes, gradients, transparency, layering and text in one retained gallery
-presented by Viewer. The other examples display rasterized images and surfaces.
+The centralized [2D shape gallery](https://github.com/Matanek/Silex-Examples/tree/main/Sources/ShapeGallery2D)
+exercises lines, caps, joins, paths, curves, analytic shapes, gradients,
+transparency, layering and text in one retained gallery presented by Viewer.
+Focused rasterized image, text and surface behavior is covered by the tests and
+the snippets in this documentation.
 
 ## Interactive drawings
 

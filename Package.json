@@ -9,9 +9,6 @@
     "GFX.Assets": "^0.1.0",
     "STD": "^0.16.0"
   },
-  "devDependencies": {
-    "GFX.Viewer": "^0.1.0"
-  },
   "boundary": {
     "macos-arm64": {
       "providers": {
