@@ -86,6 +86,9 @@ func rasterize_cropped_text(
                 if value.value == "" { continue }
                 var style = value.style
                 style.size *= scale
+                if let advance = style.fixed_advance {
+                    style.fixed_advance = advance * scale
+                }
                 let metrics = measure_text(value.value, style)
                 var x = value.position.x * scale
                 if style.alignment == TextAlignment.center { x -= metrics.width * 0.5 }

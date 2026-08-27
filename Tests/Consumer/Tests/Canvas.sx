@@ -67,4 +67,8 @@ test "place grapheme clusters on a fixed text grid" {
     let raster = drawing.rasterize(48, 24)
     assert(raster.width() == 48)
     assert(raster.height() == 24)
+
+    let layer = drawing.snapshot(48, 24).text_layers()[0].text_layer(2.0)
+    assert(layer.size.x == 40.0)
+    assert(layer.image.width() == 80)
 }
