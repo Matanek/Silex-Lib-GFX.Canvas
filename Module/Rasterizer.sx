@@ -12,6 +12,7 @@ use GFX.Canvas.Styles.TextWeight
 use GFX.Canvas.Font.Font
 use GFX.Canvas.Font.TextRaster
 use STD.Math
+use STD.Text.Grapheme
 use STD.Text.UTF8
 use Interop.Boundary
 use Interop.C
@@ -203,6 +204,9 @@ func rasterize_selected(
                 if !include_text { continue }
                 var style = value.style
                 style.size *= text_scale
+                if let advance = style.fixed_advance {
+                    style.fixed_advance = advance * text_scale
+                }
                 draw_text(
                     address,
                     width,
@@ -222,6 +226,15 @@ func rasterize_selected(
 
 func measure_text(value:str, style:TextStyle) TextMetrics {
     if style.size <= 0.0 { panic("GFX.Canvas text size must be positive") }
+    if let advance = style.fixed_advance {
+        return fixed_advance_metrics(
+            value,
+            advance,
+            style.size,
+            style.weight,
+            style.typeface()
+        )
+    }
     return measure_font_text(value, style.size, style.weight, style.typeface())
 }
 
@@ -694,18 +707,49 @@ func draw_font_text(
     font:Font
 ) {
     if value == "" { return }
+    if let advance = style.fixed_advance {
+        draw_fixed_advance_text(
+            address,
+            width,
+            height,
+            value,
+            position,
+            style,
+            font,
+            advance
+        )
+        return
+    }
     let raster = cached_text_raster(value, style.size, style.weight, font)
     var origin_x = position.x
     if style.alignment == TextAlignment.center { origin_x -= raster.width as float * 0.5 }
     if style.alignment == TextAlignment.end { origin_x -= raster.width as float }
-    let destination_x = Math.floor(origin_x) as int
-    let destination_y = Math.floor(position.y) as int
+    draw_text_raster(
+        address,
+        width,
+        height,
+        raster,
+        Math.floor(origin_x) as int,
+        Math.floor(position.y) as int,
+        style.color
+    )
+}
+
+func draw_text_raster(
+    address:uint,
+    width:int,
+    height:int,
+    raster:TextRaster,
+    destination_x:int,
+    destination_y:int,
+    color_value:Color
+) {
     let source = C.address_bits(C.pointer(raster.alpha))
     let color = Color.bytes(
-        color_channel(style.color.r),
-        color_channel(style.color.g),
-        color_channel(style.color.b),
-        color_channel(style.color.a)
+        color_channel(color_value.r),
+        color_channel(color_value.g),
+        color_channel(color_value.b),
+        color_channel(color_value.a)
     )
     var source_y = 0
     while source_y < raster.height {
@@ -733,6 +777,78 @@ func draw_font_text(
         }
         source_y++
     }
+}
+
+func fixed_advance_metrics(
+    value:str,
+    advance:float,
+    size:float,
+    weight:TextWeight,
+    font:Font
+) TextMetrics {
+    let natural = measure_font_text(value, size, weight, font)
+    var columns = 0
+    var maximum_columns = 0
+    for cluster in Grapheme.split(value) {
+        if cluster == "\n" {
+            maximum_columns = max_int(maximum_columns, columns)
+            columns = 0
+        } else { columns++ }
+    }
+    maximum_columns = max_int(maximum_columns, columns)
+    return TextMetrics(
+        width:maximum_columns as float * advance,
+        height:natural.height,
+        lines:natural.lines
+    )
+}
+
+func draw_fixed_advance_text(
+    address:uint,
+    width:int,
+    height:int,
+    value:str,
+    position:Math.Vec2,
+    style:TextStyle,
+    font:Font,
+    advance:float
+) {
+    let metrics = fixed_advance_metrics(
+        value,
+        advance,
+        style.size,
+        style.weight,
+        font
+    )
+    var origin_x = position.x
+    if style.alignment == TextAlignment.center { origin_x -= metrics.width * 0.5 }
+    if style.alignment == TextAlignment.end { origin_x -= metrics.width }
+    let line_height = measure_font_text("M", style.size, style.weight, font).height
+    var column = 0
+    var line = 0
+    for cluster in Grapheme.split(value) {
+        if cluster == "\n" {
+            column = 0
+            line++
+        } else {
+            let raster = cached_text_raster(cluster, style.size, style.weight, font)
+            draw_text_raster(
+                address,
+                width,
+                height,
+                raster,
+                Math.floor(origin_x + column as float * advance) as int,
+                Math.floor(position.y + line as float * line_height) as int,
+                style.color
+            )
+            column++
+        }
+    }
+}
+
+func max_int(first:int, second:int) int {
+    if first > second { return first }
+    return second
 }
 
 func cached_text_raster(

@@ -43,3 +43,28 @@ test "consume the interactive Canvas session contract" {
     assert(!session.accepts_text_input())
     assert(session.drawing(32, 24).command_count() == 0)
 }
+
+test "place grapheme clusters on a fixed text grid" {
+    var drawing = Canvas()
+    let metrics = drawing.measure_text(
+        "terminal",
+        Canvas.TextStyle(size:16.0, fixed_advance:10.0)
+    )
+    assert(metrics.width == 80.0)
+    let graphemes = drawing.measure_text(
+        "a👩‍🚀b",
+        Canvas.TextStyle(size:16.0, fixed_advance:10.0)
+    )
+    assert(graphemes.width == 30.0)
+
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.text(
+            "grid",
+            Math.Vec2(1.0),
+            Canvas.TextStyle(size:16.0, fixed_advance:10.0)
+        )
+    })
+    let raster = drawing.rasterize(48, 24)
+    assert(raster.width() == 48)
+    assert(raster.height() == 24)
+}

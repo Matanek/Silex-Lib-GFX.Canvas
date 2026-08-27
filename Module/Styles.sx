@@ -110,20 +110,28 @@ public struct TextStyle {
     var alignment:TextAlignment
     var weight:TextWeight
     var font:Font?
+    var fixed_advance:float?
 
     init(
         size:float = 16.0,
         color:Color = Color(),
         alignment:TextAlignment = TextAlignment.start,
         weight:TextWeight = TextWeight.regular,
-        font:Font? = null
+        font:Font? = null,
+        fixed_advance:float? = null
     ) {
         if size <= 0.0 { panic("GFX.Canvas text size must be positive") }
+        if let advance = fixed_advance {
+            if advance <= 0.0 {
+                panic("GFX.Canvas fixed text advance must be positive")
+            }
+        }
         self.size = size
         self.color = color
         self.alignment = alignment
         self.weight = weight
         self.font = resolved_font(font)
+        self.fixed_advance = fixed_advance
     }
 
     module func typeface() Font { return resolved_font(self.font) }

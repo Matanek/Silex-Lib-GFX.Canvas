@@ -53,6 +53,11 @@ per-command identities to retained renderers, so changing one label does not
 invalidate every other text texture. SDL_ttf coverage is cached by bounded
 font, size, weight and content keys.
 
+`Canvas.TextStyle(fixed_advance:...)` places Unicode grapheme clusters on an
+explicit horizontal grid while retaining one text command. This is intended
+for terminal and editor rows whose cell positions must stay exact; ordinary
+proportional and monospace text keeps its natural advances by default.
+
 The interactive programs under `Examples/` use the package's
 `devDependencies` to open a window through Viewer. Viewer therefore remains
 absent from the public dependency graph consumed by applications.

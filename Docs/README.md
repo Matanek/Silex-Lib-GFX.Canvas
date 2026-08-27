@@ -64,6 +64,11 @@ changes invalidate the corresponding layer automatically; callers never
 compare commands themselves. Font coverage uses a bounded 256-entry cache so
 repeated labels avoid another SDL_ttf render without unbounded growth.
 
+Set `TextStyle.fixed_advance` when the authored content owns a fixed cell grid.
+Canvas then measures and positions each Unicode grapheme at that advance while
+retaining the complete row as one text command. The default remains the
+font's natural shaping and advances.
+
 ## Surface
 
 `Canvas.Surface` is a mutable RGBA pixel surface. It accepts the same painting
