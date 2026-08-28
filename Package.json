@@ -1,9 +1,12 @@
 {
   "name": "GFX.Canvas",
   "version": "0.3.0",
-  "description": "Portable vector drawing, text, rasterization, snapshots, and mutable pixel surfaces.",
+  "description": {
+    "en": "Portable vector drawing, text, rasterization, snapshots, and mutable pixel surfaces.",
+    "fr": "Dessin vectoriel portable, texte, rastérisation, instantanés et surfaces de pixels mutables."
+  },
   "authors": ["Matanek"],
-  "requires": { "silex": ">=0.39.0" },
+  "requires": { "silex": ">=0.42.0" },
   "dependencies": {
     "GFX": "^0.37.0",
     "GFX.Assets": "^0.1.0",
