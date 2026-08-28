@@ -75,9 +75,25 @@ func rasterize_cropped_text(
     height:int,
     scale:float = 1.0
 ) TextImage {
+    return rasterize_text_bounds(commands, width, height, scale, true)
+}
+
+func rasterize_unbounded_text(
+    commands:@Command[],
+    scale:float = 1.0
+) TextImage {
+    return rasterize_text_bounds(commands, 0, 0, scale, false)
+}
+
+local func rasterize_text_bounds(
+    commands:@Command[],
+    width:int,
+    height:int,
+    scale:float,
+    clipped:bool
+) TextImage {
     if scale <= 0.0 { panic("GFX.Canvas text raster scale must be positive") }
-    let maximum = Math.Vec2(width as float * scale, height as float * scale)
-    var minimum = maximum
+    var minimum = Math.Vec2()
     var upper = Math.Vec2()
     var found = false
     for command in commands {
@@ -94,11 +110,16 @@ func rasterize_cropped_text(
                 if style.alignment == TextAlignment.center { x -= metrics.width * 0.5 }
                 if style.alignment == TextAlignment.end { x -= metrics.width }
                 let y = value.position.y * scale
-                minimum = Math.Vec2(Math.min(minimum.x, x), Math.min(minimum.y, y))
-                upper = Math.Vec2(
-                    Math.max(upper.x, x + metrics.width),
-                    Math.max(upper.y, y + metrics.height)
-                )
+                if !found {
+                    minimum = Math.Vec2(x, y)
+                    upper = Math.Vec2(x + metrics.width, y + metrics.height)
+                } else {
+                    minimum = Math.Vec2(Math.min(minimum.x, x), Math.min(minimum.y, y))
+                    upper = Math.Vec2(
+                        Math.max(upper.x, x + metrics.width),
+                        Math.max(upper.y, y + metrics.height)
+                    )
+                }
                 found = true
             }
             else => {}
@@ -107,10 +128,17 @@ func rasterize_cropped_text(
     if !found {
         return TextImage(image:Image(), origin:Math.Vec2(), size:Math.Vec2())
     }
-    let left = Math.max(0.0, Math.floor(minimum.x))
-    let top = Math.max(0.0, Math.floor(minimum.y))
-    let right = Math.min(maximum.x, Math.ceil(upper.x))
-    let bottom = Math.min(maximum.y, Math.ceil(upper.y))
+    var left = Math.floor(minimum.x)
+    var top = Math.floor(minimum.y)
+    var right = Math.ceil(upper.x)
+    var bottom = Math.ceil(upper.y)
+    if clipped {
+        let maximum = Math.Vec2(width as float * scale, height as float * scale)
+        left = Math.max(0.0, left)
+        top = Math.max(0.0, top)
+        right = Math.min(maximum.x, right)
+        bottom = Math.min(maximum.y, bottom)
+    }
     if right <= left || bottom <= top {
         return TextImage(image:Image(), origin:Math.Vec2(), size:Math.Vec2())
     }

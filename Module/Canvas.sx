@@ -25,6 +25,7 @@ public class Canvas {
     private var cached_snapshot_revision:int = 0
     private var cached_snapshot_width:int = 0
     private var cached_snapshot_height:int = 0
+    private var cached_snapshot_framed:bool = false
 
     init() {
         self.current_commands = []
@@ -59,8 +60,27 @@ public class Canvas {
         return Vectorizer.geometry(self.current_commands)
     }
 
-    func snapshot(width:int, height:int) Snapshot {
+    func snapshot() Snapshot {
         if self.cached_snapshot_revision == self.current_revision &&
+            !self.cached_snapshot_framed
+        {
+            if let snapshot = self.cached_snapshot { return snapshot }
+        }
+        var snapshot = Snapshot(self.vector_geometry(), self.current_commands)
+        self.cached_snapshot = snapshot
+        self.cached_snapshot_revision = self.current_revision
+        self.cached_snapshot_width = 0
+        self.cached_snapshot_height = 0
+        self.cached_snapshot_framed = false
+        return snapshot
+    }
+
+    func snapshot(width:int, height:int) Snapshot {
+        if width <= 0 || height <= 0 {
+            panic("GFX.Canvas snapshot dimensions must be positive")
+        }
+        if self.cached_snapshot_revision == self.current_revision &&
+            self.cached_snapshot_framed &&
             self.cached_snapshot_width == width && self.cached_snapshot_height == height
         {
             if let snapshot = self.cached_snapshot { return snapshot }
@@ -75,6 +95,15 @@ public class Canvas {
         self.cached_snapshot_revision = self.current_revision
         self.cached_snapshot_width = width
         self.cached_snapshot_height = height
+        self.cached_snapshot_framed = true
+        return snapshot
+    }
+
+    // Incrementally compiles an unbounded retained snapshot while preserving
+    // unchanged text-layer identities.
+    func snapshot(reuse:@Snapshot) Snapshot {
+        var snapshot = self.snapshot()
+        snapshot.reuse_unchanged(reuse)
         return snapshot
     }
 

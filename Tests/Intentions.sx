@@ -89,3 +89,54 @@ test "retain unchanged text layers while one label changes" {
     assert(retained_layers[1].id() == previous_layers[1].id())
     assert(retained_layers[1].revision() == value_revision + 1)
 }
+
+test "retain an unbounded snapshot without inventing a drawing frame" {
+    var first = Canvas()
+    first.paint(func(painter:&Painter) {
+        painter.text("Origin", Math.Vec2(-12.0, -6.0))
+        painter.fill(
+            Circle(Math.Vec2(), 8.0),
+            Fill.solid(Color.cyan_500())
+        )
+    })
+    var previous = first.snapshot()
+    var layers = previous.text_layers()
+    assert(layers.count() == 1)
+    let text = layers[0].text_layer()
+    assert(text.origin == Math.Vec2(-12.0, -6.0))
+    assert(text.size.x > 0.0)
+    assert(text.size.y > 0.0)
+
+    var changed = Canvas()
+    changed.paint(func(painter:&Painter) {
+        painter.text("Origin", Math.Vec2(-12.0, -6.0))
+        painter.fill(
+            Circle(Math.Vec2(), 12.0),
+            Fill.solid(Color.cyan_500())
+        )
+    })
+    var retained = changed.snapshot(reuse:previous)
+    var retained_layers = retained.text_layers()
+    assert(retained.geometry_revision() != previous.geometry_revision())
+    assert(retained_layers[0].id() == layers[0].id())
+    assert(retained_layers[0].revision() == layers[0].revision())
+}
+
+test "do not reuse text coverage across different frames" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Painter) {
+        painter.text("Label", Math.Vec2(4.0, 4.0))
+    })
+    var framed = drawing.snapshot(80, 24)
+    assert(framed.text().width() > 0)
+    assert(framed.has_cached_text())
+
+    var resized = drawing.snapshot(96, 24, reuse:framed)
+    assert(!resized.has_cached_text())
+    assert(resized.text_revision() != framed.text_revision())
+
+    var unbounded = drawing.snapshot(reuse:framed)
+    assert(!unbounded.has_cached_text())
+    let unbounded_text = unbounded.text_layer()
+    assert(unbounded_text.origin == Math.Vec2(4.0, 4.0))
+}

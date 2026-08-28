@@ -59,11 +59,15 @@ for command in drawing.commands() {
 }
 ```
 
-`Canvas.snapshot(width, height)` conserve la géométrie et met les couches de
-texte en cache à la densité demandée. Pour des révisions successives, passez
-l’ancien snapshot par `reuse:previous`. Les commandes texte identiques gardent
-leur révision et leur couverture de glyphes, tandis que la géométrie vectorielle
-peut changer indépendamment.
+`Canvas.snapshot()` conserve la géométrie dans ses coordonnées locales, sans
+inventer de rectangle de dessin. Chaque couche de texte calcule sa propre
+couverture, y compris lorsque son origine est négative. La forme
+`Canvas.snapshot(width, height)` reste disponible lorsqu’un viewport, un layout
+ou un export doit découper le texte selon un cadre précis.
+
+Pour des révisions successives, passez l’ancien snapshot par `reuse:previous`.
+Les commandes texte identiques gardent leur révision et leur couverture de
+glyphes, tandis que la géométrie vectorielle peut changer indépendamment.
 
 `Snapshot.text_layers()` donne à chaque commande de texte une identité stable
 et sa propre image de couverture paresseuse. Un renderer peut donc transférer

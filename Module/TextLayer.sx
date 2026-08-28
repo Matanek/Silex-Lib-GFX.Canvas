@@ -61,12 +61,16 @@ public class TextLayer {
         if !Math.nearly_equal(scale, self.retained_scale) || self.retained == null {
             if let command = self.current_command {
                 var commands:Command[] = [command]
-                self.retained = Rasterizer.rasterize_cropped_text(
-                    commands,
-                    self.canvas_width,
-                    self.canvas_height,
-                    scale
-                )
+                if self.canvas_width > 0 && self.canvas_height > 0 {
+                    self.retained = Rasterizer.rasterize_cropped_text(
+                        commands,
+                        self.canvas_width,
+                        self.canvas_height,
+                        scale
+                    )
+                } else {
+                    self.retained = Rasterizer.rasterize_unbounded_text(commands, scale)
+                }
             }
             self.retained_scale = scale
         }

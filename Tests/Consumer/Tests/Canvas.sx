@@ -35,6 +35,11 @@ test "consume the public Canvas surface" {
     var incremental = drawing.snapshot(16, 16, reuse:previous)
     assert(incremental.text_revision() == previous.text_revision())
     assert(incremental.has_cached_text())
+
+    var unbounded = drawing.snapshot()
+    var unbounded_layers = unbounded.text_layers()
+    assert(unbounded_layers.count() == 1)
+    assert(unbounded_layers[0].text_layer().image.width() > 0)
 }
 
 test "consume the interactive Canvas session contract" {

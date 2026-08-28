@@ -58,10 +58,14 @@ for command in drawing.commands() {
 }
 ```
 
-`Canvas.snapshot(width, height)` preserves geometry and caches text layers at
-the requested density. For successive revisions, pass the previous snapshot as
-`reuse:previous`. Identical text commands retain their revision and glyph
-coverage while vector geometry can change independently.
+`Canvas.snapshot()` preserves geometry in its local coordinates without
+inventing a drawing rectangle. Every text layer computes its own coverage,
+including when its origin is negative. `Canvas.snapshot(width, height)` remains
+available when a viewport, layout, or export must clip text to a precise frame.
+
+For successive revisions, pass the previous snapshot as `reuse:previous`.
+Identical text commands retain their revision and glyph coverage while vector
+geometry can change independently.
 
 `Snapshot.text_layers()` gives every text command a stable identity and its own
 lazy coverage image. A renderer can therefore upload only the changed label.
