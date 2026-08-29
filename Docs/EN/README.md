@@ -67,10 +67,26 @@ For successive revisions, pass the previous snapshot as `reuse:previous`.
 Identical text commands retain their revision and glyph coverage while vector
 geometry can change independently.
 
-A renderer that continuously animates the same drawing uses `Canvas.Prepared`
-instead. The Canvas then rewrites geometry into two alternating retained
-storages: their capacity is recycled, the previous topology remains available
-to detect unchanged geometry, and text layers update independently.
+A renderer that continuously animates the same drawing uses retained
+preparation instead. `drawing.prepared()` provides the unbounded preparation
+shared by every placement of that drawing;
+`drawing.prepared(width, height)` retains one for each frame size. A later
+revision of the same Canvas updates those objects in place, so a renderer can
+share the compilation without rebuilding or replacing every component.
+
+```sx
+var prepared = drawing.prepared()
+
+// After clear(), paint(...), or any other revision of the same Canvas:
+prepared = drawing.prepared()
+let geometry = prepared.geometry()
+```
+
+To explicitly own an independent preparation, create `Canvas.Prepared` and
+pass it to `prepare(...)`. The Canvas then rewrites geometry into two
+alternating retained storages: their capacity is recycled, the previous
+topology remains available to detect unchanged geometry, and text layers
+update independently.
 
 ```sx
 var prepared = Canvas.Prepared()
@@ -81,7 +97,8 @@ drawing.prepare(prepared)
 let geometry = prepared.geometry()
 ```
 
-The `prepare(prepared, width, height)` overload frames text layers. Circles,
+The `prepared(width, height)` and `prepare(prepared, width, height)` overloads
+frame text layers. Circles,
 rectangles, and straight lines compile to six-vertex analytic quads; the shader
 evaluates radius, width, orientation, and cap instead of retessellating rounded
 contours on the CPU.

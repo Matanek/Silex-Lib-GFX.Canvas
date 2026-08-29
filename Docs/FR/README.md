@@ -69,11 +69,27 @@ Pour des révisions successives, passez l’ancien snapshot par `reuse:previous`
 Les commandes texte identiques gardent leur révision et leur couverture de
 glyphes, tandis que la géométrie vectorielle peut changer indépendamment.
 
-Un renderer qui anime continuellement le même dessin emploie plutôt
-`Canvas.Prepared`. Le Canvas réécrit alors sa géométrie dans deux stockages
-retenus alternés : leur capacité est recyclée, la topologie précédente reste
-disponible pour détecter une géométrie inchangée et les couches de texte sont
-mises à jour indépendamment.
+Un renderer qui anime continuellement le même dessin emploie plutôt une
+préparation retenue. `drawing.prepared()` fournit la préparation non bornée
+partagée par tous les placements du dessin ;
+`drawing.prepared(width, height)` en conserve une par taille de cadre. Une
+révision suivante du même Canvas met ces objets à jour en place. Le renderer
+peut donc partager la compilation sans reconstruire ni remplacer chaque
+composant.
+
+```sx
+var prepared = drawing.prepared()
+
+// Après clear(), paint(...) ou toute autre révision du même Canvas :
+prepared = drawing.prepared()
+let geometry = prepared.geometry()
+```
+
+Pour posséder explicitement une préparation indépendante, créez
+`Canvas.Prepared` et passez-la à `prepare(...)`. Le Canvas réécrit alors sa
+géométrie dans deux stockages retenus alternés : leur capacité est recyclée, la
+topologie précédente reste disponible pour détecter une géométrie inchangée et
+les couches de texte sont mises à jour indépendamment.
 
 ```sx
 var prepared = Canvas.Prepared()
@@ -84,7 +100,8 @@ drawing.prepare(prepared)
 let geometry = prepared.geometry()
 ```
 
-La surcharge `prepare(prepared, width, height)` cadre les couches de texte.
+Les surcharges `prepared(width, height)` et
+`prepare(prepared, width, height)` cadrent les couches de texte.
 Les cercles, rectangles et lignes droites sont compilés en quads analytiques
 de six sommets ; rayon, largeur, orientation et terminaison sont évalués par le
 shader au lieu de tesseller à nouveau les contours ronds sur le CPU.

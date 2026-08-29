@@ -46,6 +46,11 @@ test "consume the public Canvas surface" {
     assert(prepared.geometry().vertex_count() == 6)
     var prepared_layers = prepared.text_layers()
     assert(prepared_layers.count() == 1)
+
+    var shared_prepared = drawing.prepared(16, 16)
+    var shared_unbounded = drawing.prepared()
+    assert(shared_prepared.geometry().vertex_count() == 6)
+    assert(shared_unbounded.geometry().vertex_count() == 6)
 }
 
 test "consume the interactive Canvas session contract" {

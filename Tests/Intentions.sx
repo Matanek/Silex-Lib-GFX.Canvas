@@ -174,3 +174,31 @@ test "retain prepared geometry while only text changes" {
     assert(changed_layers[0].id() == first_layers[0].id())
     assert(changed_layers[0].revision() == first_layers[0].revision() + 1)
 }
+
+test "share cached prepared geometry for one authored frame" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Painter) {
+        painter.fill(
+            Rect(Math.Vec2(), Math.Vec2(12.0)),
+            Fill.solid(Color.cyan_500())
+        )
+    })
+    var first = drawing.prepared(64, 32)
+    var second = drawing.prepared(64, 32)
+    let revision = first.revision()
+    assert(first.revision() == second.revision())
+
+    drawing.clear()
+    drawing.paint(func(painter:&Painter) {
+        painter.fill(
+            Rect(Math.Vec2(), Math.Vec2(16.0)),
+            Fill.solid(Color.amber_500())
+        )
+    })
+    var refreshed = drawing.prepared(64, 32)
+    assert(refreshed.revision() != revision)
+    assert(first.revision() == refreshed.revision())
+
+    var unbounded = drawing.prepared()
+    assert(unbounded.revision() != refreshed.revision())
+}

@@ -17,6 +17,7 @@ public class Prepared {
     private var retained_geometry:Mesh
     private var staging_geometry:Mesh
     private var retained_text:Snapshot
+    private var retained_has_text:bool
 
     init() {
         self.current_revision = 0
@@ -24,12 +25,13 @@ public class Prepared {
         self.retained_geometry = Mesh()
         self.staging_geometry = Mesh()
         self.retained_text = Snapshot()
+        self.retained_has_text = false
     }
 
     func revision() int { return self.current_revision }
     func geometry_revision() int { return self.current_geometry_revision }
     func geometry() Mesh { return self.retained_geometry }
-    func has_text() bool { return self.retained_text.has_text() }
+    func has_text() bool { return self.retained_has_text }
     func text_layers() TextLayer[] { return self.retained_text.text_layers() }
 
     package func update(commands:@Command[]) {
@@ -54,6 +56,7 @@ public class Prepared {
         var retained = text
         retained.reuse_unchanged(self.retained_text)
         self.retained_text = retained
+        self.retained_has_text = retained.has_text()
         self.current_revision = Prepared.next_revision
         Prepared.next_revision++
     }
