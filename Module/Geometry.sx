@@ -45,6 +45,19 @@ public struct Mesh {
         return self.current_vertices.count() == 0 || self.current_indices.count() == 0
     }
 
+    package func clear_storage() {
+        self.current_vertices.clear()
+        self.current_indices.clear()
+    }
+
+    package func append_vertex(vertex:Vertex) {
+        self.current_vertices.append(vertex)
+    }
+
+    package func append_index(index:uint32) {
+        self.current_indices.append(index)
+    }
+
     private func validate() {
         if self.current_indices.count() % 3 != 0 {
             panic("GFX.Canvas geometry indices must describe triangles")

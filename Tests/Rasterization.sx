@@ -711,8 +711,8 @@ test "retain visible horizontal vertical and diagonal lines" {
             )
         })
         let geometry = drawing.vector_geometry()
-        assert(geometry.vertex_count() > 6)
-        assert(geometry.triangle_count() > 2)
+        assert(geometry.vertex_count() == 6)
+        assert(geometry.triangle_count() == 2)
         index++
     }
 }

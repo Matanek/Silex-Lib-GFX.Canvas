@@ -1,6 +1,7 @@
 use GFX.Color
 use GFX.Canvas.Canvas.Canvas
 use GFX.Canvas.Canvas.Painter
+use GFX.Canvas.Prepared.Prepared
 use GFX.Canvas.Shapes.Circle
 use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.Styles.Fill
@@ -139,4 +140,37 @@ test "do not reuse text coverage across different frames" {
     assert(!unbounded.has_cached_text())
     let unbounded_text = unbounded.text_layer()
     assert(unbounded_text.origin == Math.Vec2(4.0, 4.0))
+}
+
+test "retain prepared geometry while only text changes" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Painter) {
+        painter.fill(
+            Rect(Math.Vec2(), Math.Vec2(12.0)),
+            Fill.solid(Color.cyan_500())
+        )
+        painter.text("10%", Math.Vec2(2.0, 2.0))
+    })
+    var prepared = Prepared()
+    drawing.prepare(prepared, 64, 32)
+    let geometry_revision = prepared.geometry_revision()
+    let revision = prepared.revision()
+    var first_layers = prepared.text_layers()
+    assert(prepared.geometry().vertex_count() == 6)
+    assert(first_layers.count() == 1)
+
+    drawing.clear()
+    drawing.paint(func(painter:&Painter) {
+        painter.fill(
+            Rect(Math.Vec2(), Math.Vec2(12.0)),
+            Fill.solid(Color.cyan_500())
+        )
+        painter.text("11%", Math.Vec2(2.0, 2.0))
+    })
+    drawing.prepare(prepared, 64, 32)
+    var changed_layers = prepared.text_layers()
+    assert(prepared.revision() != revision)
+    assert(prepared.geometry_revision() == geometry_revision)
+    assert(changed_layers[0].id() == first_layers[0].id())
+    assert(changed_layers[0].revision() == first_layers[0].revision() + 1)
 }

@@ -3,6 +3,7 @@ use GFX.Color
 use GFX.Canvas.Command
 use GFX.Canvas.Geometry
 use GFX.Canvas.Path.Path
+use GFX.Canvas.Prepared.Prepared
 use GFX.Canvas.Rasterizer
 use GFX.Canvas.Shapes.Arc
 use GFX.Canvas.Shapes.Circle
@@ -58,6 +59,17 @@ public class Canvas {
 
     func vector_geometry() Geometry.Mesh {
         return Vectorizer.geometry(self.current_commands)
+    }
+
+    func prepare(prepared:&Prepared) {
+        prepared.update(self.current_commands)
+    }
+
+    func prepare(prepared:&Prepared, width:int, height:int) {
+        if width <= 0 || height <= 0 {
+            panic("GFX.Canvas prepared dimensions must be positive")
+        }
+        prepared.update(self.current_commands, width, height)
     }
 
     func snapshot() Snapshot {

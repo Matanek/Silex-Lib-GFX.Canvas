@@ -19,3 +19,27 @@ test "build bounded antialiased geometry" {
     assert(geometry.vertex_count() < 10000)
     assert(geometry.index_count() < 10000)
 }
+
+test "encode every straight stroke cap as one analytic quad" {
+    let caps:Canvas.StrokeCap[] = [
+        Canvas.StrokeCap.butt,
+        Canvas.StrokeCap.round,
+        Canvas.StrokeCap.square
+    ]
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        for cap in caps {
+            painter.stroke(
+                Canvas.Line(Math.Vec2(), Math.Vec2(10.0, 0.0)),
+                Canvas.Stroke(Color.white(), 4.0)..cap = cap
+            )
+        }
+    })
+    let geometry = drawing.vector_geometry()
+    assert(geometry.vertex_count() == caps.count() * 6)
+    assert(geometry.index_count() == caps.count() * 6)
+    let vertices = geometry.vertices()
+    assert(vertices[0].normal == Math.Vec3(5.0, 2.0, -2.0))
+    assert(vertices[6].normal == Math.Vec3(5.0, 2.0, -3.0))
+    assert(vertices[12].normal == Math.Vec3(5.0, 2.0, -4.0))
+}

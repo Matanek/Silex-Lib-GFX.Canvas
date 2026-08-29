@@ -40,6 +40,12 @@ test "consume the public Canvas surface" {
     var unbounded_layers = unbounded.text_layers()
     assert(unbounded_layers.count() == 1)
     assert(unbounded_layers[0].text_layer().image.width() > 0)
+
+    var prepared = Canvas.Prepared()
+    drawing.prepare(prepared, 16, 16)
+    assert(prepared.geometry().vertex_count() == 6)
+    var prepared_layers = prepared.text_layers()
+    assert(prepared_layers.count() == 1)
 }
 
 test "consume the interactive Canvas session contract" {

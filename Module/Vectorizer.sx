@@ -28,53 +28,56 @@ struct AnalyticQuad {
 }
 
 func geometry(commands:@Command[]) Mesh {
-    var vertices:Vertex[] = []
-    var indices:uint32[] = []
+    var mesh = Mesh()
+    update(commands, mesh)
+    return mesh
+}
+
+func update(commands:@Command[], mesh:&Mesh) {
+    mesh.clear_storage()
     for command in commands {
         match command {
             fill_rect(value) => {
-                append_analytic_rect(vertices, indices, value.shape.position, value.shape.size,
+                append_analytic_rect(mesh, value.shape.position, value.shape.size,
                     value.shape.radius, 0.0, value.style.brush())
             }
             stroke_rect(value) => {
-                append_analytic_rect(vertices, indices, value.shape.position, value.shape.size,
+                append_analytic_rect(mesh, value.shape.position, value.shape.size,
                     value.shape.radius, value.style.width, value.style.brush())
             }
             fill_circle(value) => {
-                append_analytic_circle(vertices, indices, value.shape.center, value.shape.radius,
+                append_analytic_circle(mesh, value.shape.center, value.shape.radius,
                     0.0, value.style.brush())
             }
             stroke_circle(value) => {
-                append_analytic_circle(vertices, indices, value.shape.center, value.shape.radius,
+                append_analytic_circle(mesh, value.shape.center, value.shape.radius,
                     value.style.width, value.style.brush())
             }
             stroke_line(value) => {
-                let points:Math.Vec2[] = [value.shape.start, value.shape.end]
-                append_stroke(vertices, indices, points, false, value.style)
+                append_analytic_line(mesh, value.shape.start, value.shape.end, value.style)
             }
             fill_path(value) => {
                 let line = Rasterizer.flatten(value.shape)
-                append_polygon(vertices, indices, line.points, value.style.brush())
+                append_polygon(mesh, line.points, value.style.brush())
             }
             stroke_path(value) => {
                 let line = Rasterizer.flatten(value.shape)
-                append_stroke(vertices, indices, line.points, line.closed, value.style)
+                append_stroke(mesh, line.points, line.closed, value.style)
             }
             text(value) => {}
         }
     }
-    return Mesh(vertices, indices)
 }
 
 func append_analytic_rect(
-    vertices:&Vertex[], indices:&uint32[], position:Math.Vec2, size:Math.Vec2,
+    mesh:&Mesh, position:Math.Vec2, size:Math.Vec2,
     radius:float, stroke:float, brush:Brush
 ) {
     let center = position.add(size.multiply(0.5))
     let half = size.multiply(0.5)
     let rounded = Math.min(Math.max(0.0, radius), Math.min(half.x, half.y))
     let expansion = stroke * 0.5 + 1.0
-    append_analytic_quad(vertices, indices, AnalyticQuad(
+    append_analytic_quad(mesh, AnalyticQuad(
         center:center, axis:Math.Vec2(1.0, 0.0), normal:Math.Vec2(0.0, 1.0),
         extent:Math.Vec2(half.x + expansion, half.y + expansion),
         shape:Math.Vec3(half.x, half.y, rounded), mode:stroke
@@ -82,37 +85,79 @@ func append_analytic_rect(
 }
 
 func append_analytic_circle(
-    vertices:&Vertex[], indices:&uint32[], center:Math.Vec2, radius:float,
+    mesh:&Mesh, center:Math.Vec2, radius:float,
     stroke:float, brush:Brush
 ) {
     let expansion = stroke * 0.5 + 1.0
-    append_analytic_quad(vertices, indices, AnalyticQuad(
+    append_analytic_quad(mesh, AnalyticQuad(
         center:center, axis:Math.Vec2(1.0, 0.0), normal:Math.Vec2(0.0, 1.0),
         extent:Math.Vec2(radius + expansion),
         shape:Math.Vec3(radius, radius, -1.0), mode:stroke
     ), brush)
 }
 
-func append_analytic_quad(
-    vertices:&Vertex[], indices:&uint32[], quad:AnalyticQuad, brush:Brush
+func append_analytic_line(
+    mesh:&Mesh,
+    start:Math.Vec2,
+    end:Math.Vec2,
+    style:Stroke
 ) {
-    let locals:Math.Vec2[] = [
-        Math.Vec2(-quad.extent.x, -quad.extent.y), Math.Vec2(quad.extent.x, -quad.extent.y),
-        Math.Vec2(quad.extent.x, quad.extent.y), Math.Vec2(-quad.extent.x, quad.extent.y)
-    ]
-    let order:int[] = [0, 1, 2, 0, 2, 3]
-    for corner in order {
-        let coordinate = locals[corner]
-        let point = quad.center.add(quad.axis.multiply(coordinate.x)).add(quad.normal.multiply(coordinate.y))
-        let base = vertices.count() as uint32
-        vertices.append(Vertex(
-            position:Math.Vec3(point.x, point.y, quad.mode),
-            normal:quad.shape,
-            uv:coordinate,
-            color:brush.color_at(point)
-        ))
-        indices.append(base)
+    let delta = end.subtract(start)
+    let length = Math.sqrt(delta.length_squared())
+    let axis = delta.multiply(1.0 / length)
+    let normal = Math.Vec2(-axis.y, axis.x)
+    let half_length = length * 0.5
+    let half_width = style.width * 0.5
+    var cap = -2.0
+    var cap_extension = 0.0
+    if style.cap == StrokeCap.round {
+        cap = -3.0
+        cap_extension = half_width
+    } else if style.cap == StrokeCap.square {
+        cap = -4.0
+        cap_extension = half_width
     }
+    append_analytic_quad(mesh, AnalyticQuad(
+        center:start.add(end).multiply(0.5),
+        axis:axis,
+        normal:normal,
+        extent:Math.Vec2(
+            half_length + cap_extension + 1.0,
+            half_width + 1.0
+        ),
+        shape:Math.Vec3(half_length, half_width, cap),
+        mode:0.0
+    ), style.brush())
+}
+
+func append_analytic_quad(
+    mesh:&Mesh, quad:AnalyticQuad, brush:Brush
+) {
+    append_analytic_vertex(mesh, quad, brush, Math.Vec2(-quad.extent.x, -quad.extent.y))
+    append_analytic_vertex(mesh, quad, brush, Math.Vec2(quad.extent.x, -quad.extent.y))
+    append_analytic_vertex(mesh, quad, brush, Math.Vec2(quad.extent.x, quad.extent.y))
+    append_analytic_vertex(mesh, quad, brush, Math.Vec2(-quad.extent.x, -quad.extent.y))
+    append_analytic_vertex(mesh, quad, brush, Math.Vec2(quad.extent.x, quad.extent.y))
+    append_analytic_vertex(mesh, quad, brush, Math.Vec2(-quad.extent.x, quad.extent.y))
+}
+
+func append_analytic_vertex(
+    mesh:&Mesh,
+    quad:AnalyticQuad,
+    brush:Brush,
+    coordinate:Math.Vec2
+) {
+    let point = quad.center
+        .add(quad.axis.multiply(coordinate.x))
+        .add(quad.normal.multiply(coordinate.y))
+    let base = mesh.vertex_count() as uint32
+    mesh.append_vertex(Vertex(
+        position:Math.Vec3(point.x, point.y, quad.mode),
+        normal:quad.shape,
+        uv:coordinate,
+        color:brush.color_at(point)
+    ))
+    mesh.append_index(base)
 }
 
 func rounded_rect_points(position:Math.Vec2, size:Math.Vec2, radius:float) Math.Vec2[] {
@@ -166,17 +211,17 @@ func append_arc_points(
     }
 }
 
-func append_convex(vertices:&Vertex[], indices:&uint32[], points:@Math.Vec2[], brush:Brush) {
+func append_convex(mesh:&Mesh, points:@Math.Vec2[], brush:Brush) {
     if points.count() < 3 { return }
     var index = 1
     while index + 1 < points.count() {
-        append_triangle(vertices, indices, points[0], points[index], points[index + 1], brush)
+        append_triangle(mesh, points[0], points[index], points[index + 1], brush)
         index++
     }
-    append_fringe(vertices, indices, points, brush)
+    append_fringe(mesh, points, brush)
 }
 
-func append_polygon(vertices:&Vertex[], indices:&uint32[], source:@Math.Vec2[], brush:Brush) {
+func append_polygon(mesh:&Mesh, source:@Math.Vec2[], brush:Brush) {
     let points = without_duplicate_end(source)
     if points.count() < 3 { return }
     var remaining:int[] = []
@@ -192,7 +237,7 @@ func append_polygon(vertices:&Vertex[], indices:&uint32[], source:@Math.Vec2[], 
             let current = remaining[cursor]
             let next = remaining[(cursor + 1) % remaining.count()]
             if is_ear(points, remaining, previous, current, next, orientation) {
-                append_triangle(vertices, indices, points[previous], points[current], points[next], brush)
+                append_triangle(mesh, points[previous], points[current], points[next], brush)
                 remaining = without_index(remaining, cursor)
                 clipped = true
                 break
@@ -202,12 +247,11 @@ func append_polygon(vertices:&Vertex[], indices:&uint32[], source:@Math.Vec2[], 
         if !clipped { break }
         guard++
     }
-    append_fringe(vertices, indices, points, brush)
+    append_fringe(mesh, points, brush)
 }
 
 func append_stroke(
-    vertices:&Vertex[],
-    indices:&uint32[],
+    mesh:&Mesh,
     source:@Math.Vec2[],
     closed:bool,
     style:Stroke
@@ -216,7 +260,7 @@ func append_stroke(
     if points.count() < 2 { return }
     let brush = style.brush()
     if closed {
-        append_closed_stroke(vertices, indices, points, style, brush)
+        append_closed_stroke(mesh, points, style, brush)
         return
     }
     let half = style.width * 0.5
@@ -253,28 +297,28 @@ func append_stroke(
     index = 0
     while index + 1 < points.count() {
         let next = index + 1
-        append_triangle(vertices, indices, left[index], left[next], right[next], brush)
-        append_triangle(vertices, indices, left[index], right[next], right[index], brush)
+        append_triangle(mesh, left[index], left[next], right[next], brush)
+        append_triangle(mesh, left[index], right[next], right[index], brush)
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             left[index], brush.color_at(left[index]),
             left_fringe[next], faded_color(brush, left_fringe[next]),
             left_fringe[index], faded_color(brush, left_fringe[index])
         )
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             left[index], brush.color_at(left[index]),
             left[next], brush.color_at(left[next]),
             left_fringe[next], faded_color(brush, left_fringe[next])
         )
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             right[index], brush.color_at(right[index]),
             right_fringe[index], faded_color(brush, right_fringe[index]),
             right_fringe[next], faded_color(brush, right_fringe[next])
         )
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             right[index], brush.color_at(right[index]),
             right_fringe[next], faded_color(brush, right_fringe[next]),
             right[next], brush.color_at(right[next])
@@ -285,11 +329,11 @@ func append_stroke(
     let last = points.count() - 1
     let start_outward = points[0].subtract(points[1]).normalized()
     let end_outward = points[last].subtract(points[last - 1]).normalized()
-    append_stroke_cap(vertices, indices, StrokeCapShape(
+    append_stroke_cap(mesh, StrokeCapShape(
         center:points[0], a:left[0], b:right[0], outward:start_outward,
         half:half, cap:style.cap
     ), brush)
-    append_stroke_cap(vertices, indices, StrokeCapShape(
+    append_stroke_cap(mesh, StrokeCapShape(
         center:points[last], a:right[last], b:left[last], outward:end_outward,
         half:half, cap:style.cap
     ), brush)
@@ -357,13 +401,12 @@ func left_normal(direction:Math.Vec2) Math.Vec2 {
 }
 
 func append_stroke_cap(
-    vertices:&Vertex[],
-    indices:&uint32[],
+    mesh:&Mesh,
     shape:StrokeCapShape,
     brush:Brush
 ) {
     if shape.cap == StrokeCap.round {
-        append_round_cap(vertices, indices, shape.center, shape.a, shape.outward, shape.half, brush)
+        append_round_cap(mesh, shape.center, shape.a, shape.outward, shape.half, brush)
         return
     }
     var edge_a = shape.a
@@ -371,19 +414,19 @@ func append_stroke_cap(
     if shape.cap == StrokeCap.square {
         edge_a = edge_a.add(shape.outward.multiply(shape.half))
         edge_b = edge_b.add(shape.outward.multiply(shape.half))
-        append_triangle(vertices, indices, shape.a, shape.b, edge_b, brush)
-        append_triangle(vertices, indices, shape.a, edge_b, edge_a, brush)
+        append_triangle(mesh, shape.a, shape.b, edge_b, brush)
+        append_triangle(mesh, shape.a, edge_b, edge_a, brush)
     }
     let faded_a = edge_a.add(shape.outward)
     let faded_b = edge_b.add(shape.outward)
     append_colored_triangle(
-        vertices, indices,
+        mesh,
         edge_a, brush.color_at(edge_a),
         edge_b, brush.color_at(edge_b),
         faded_b, faded_color(brush, faded_b)
     )
     append_colored_triangle(
-        vertices, indices,
+        mesh,
         edge_a, brush.color_at(edge_a),
         faded_b, faded_color(brush, faded_b),
         faded_a, faded_color(brush, faded_a)
@@ -391,8 +434,7 @@ func append_stroke_cap(
 }
 
 func append_round_cap(
-    vertices:&Vertex[],
-    indices:&uint32[],
+    mesh:&Mesh,
     center:Math.Vec2,
     start:Math.Vec2,
     outward:Math.Vec2,
@@ -409,15 +451,15 @@ func append_round_cap(
         let direction = tangent.multiply(Math.cos(angle)).add(outward.multiply(Math.sin(angle)))
         let current = center.add(direction.multiply(half))
         let current_fringe = center.add(direction.multiply(half + 1.0))
-        append_triangle(vertices, indices, center, previous, current, brush)
+        append_triangle(mesh, center, previous, current, brush)
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             previous, brush.color_at(previous),
             previous_fringe, faded_color(brush, previous_fringe),
             current_fringe, faded_color(brush, current_fringe)
         )
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             previous, brush.color_at(previous),
             current_fringe, faded_color(brush, current_fringe),
             current, brush.color_at(current)
@@ -442,8 +484,7 @@ func stroke_points(source:@Math.Vec2[]) Math.Vec2[] {
 }
 
 func append_closed_stroke(
-    vertices:&Vertex[],
-    indices:&uint32[],
+    mesh:&Mesh,
     points:@Math.Vec2[],
     style:Stroke,
     brush:Brush
@@ -495,37 +536,37 @@ func append_closed_stroke(
     while index < points.count() {
         let next = (index + 1) % points.count()
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             outer[index], brush.color_at(outer[index]),
             outer[next], brush.color_at(outer[next]),
             inner[next], brush.color_at(inner[next])
         )
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             outer[index], brush.color_at(outer[index]),
             inner[next], brush.color_at(inner[next]),
             inner[index], brush.color_at(inner[index])
         )
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             outer[index], brush.color_at(outer[index]),
             outer_fringe[next], faded_color(brush, outer_fringe[next]),
             outer_fringe[index], faded_color(brush, outer_fringe[index])
         )
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             outer[index], brush.color_at(outer[index]),
             outer[next], brush.color_at(outer[next]),
             outer_fringe[next], faded_color(brush, outer_fringe[next])
         )
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             inner[index], brush.color_at(inner[index]),
             inner_fringe[index], faded_color(brush, inner_fringe[index]),
             inner_fringe[next], faded_color(brush, inner_fringe[next])
         )
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             inner[index], brush.color_at(inner[index]),
             inner_fringe[next], faded_color(brush, inner_fringe[next]),
             inner[next], brush.color_at(inner[next])
@@ -534,16 +575,16 @@ func append_closed_stroke(
     }
 }
 
-func append_convex_solid(vertices:&Vertex[], indices:&uint32[], points:@Math.Vec2[], brush:Brush) {
+func append_convex_solid(mesh:&Mesh, points:@Math.Vec2[], brush:Brush) {
     if points.count() < 3 { return }
     var index = 1
     while index + 1 < points.count() {
-        append_triangle(vertices, indices, points[0], points[index], points[index + 1], brush)
+        append_triangle(mesh, points[0], points[index], points[index + 1], brush)
         index++
     }
 }
 
-func append_fringe(vertices:&Vertex[], indices:&uint32[], source:@Math.Vec2[], brush:Brush) {
+func append_fringe(mesh:&Mesh, source:@Math.Vec2[], brush:Brush) {
     let points = without_duplicate_end(source)
     if points.count() < 3 { return }
     let orientation = polygon_area(points)
@@ -564,13 +605,13 @@ func append_fringe(vertices:&Vertex[], indices:&uint32[], source:@Math.Vec2[], b
     while index < points.count() {
         let next = (index + 1) % points.count()
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             points[index], brush.color_at(points[index]),
             points[next], brush.color_at(points[next]),
             outer[next], faded_color(brush, outer[next])
         )
         append_colored_triangle(
-            vertices, indices,
+            mesh,
             points[index], brush.color_at(points[index]),
             outer[next], faded_color(brush, outer[next]),
             outer[index], faded_color(brush, outer[index])
@@ -585,15 +626,14 @@ func outward_normal(direction:Math.Vec2, orientation:float) Math.Vec2 {
 }
 
 func append_triangle(
-    vertices:&Vertex[],
-    indices:&uint32[],
+    mesh:&Mesh,
     a:Math.Vec2,
     b:Math.Vec2,
     c:Math.Vec2,
     brush:Brush
 ) {
     append_colored_triangle(
-        vertices, indices,
+        mesh,
         a, brush.color_at(a),
         b, brush.color_at(b),
         c, brush.color_at(c)
@@ -606,8 +646,7 @@ func faded_color(brush:Brush, position:Math.Vec2) Color {
 }
 
 func append_colored_triangle(
-    vertices:&Vertex[],
-    indices:&uint32[],
+    mesh:&Mesh,
     a:Math.Vec2,
     color_a:Color,
     b:Math.Vec2,
@@ -615,13 +654,13 @@ func append_colored_triangle(
     c:Math.Vec2,
     color_c:Color
 ) {
-    let base = vertices.count() as uint32
-    vertices.append(Vertex(position:Math.Vec3(a.x, a.y, -1.0), color:color_a))
-    vertices.append(Vertex(position:Math.Vec3(b.x, b.y, -1.0), color:color_b))
-    vertices.append(Vertex(position:Math.Vec3(c.x, c.y, -1.0), color:color_c))
-    indices.append(base)
-    indices.append(base + 1)
-    indices.append(base + 2)
+    let base = mesh.vertex_count() as uint32
+    mesh.append_vertex(Vertex(position:Math.Vec3(a.x, a.y, -1.0), color:color_a))
+    mesh.append_vertex(Vertex(position:Math.Vec3(b.x, b.y, -1.0), color:color_b))
+    mesh.append_vertex(Vertex(position:Math.Vec3(c.x, c.y, -1.0), color:color_c))
+    mesh.append_index(base)
+    mesh.append_index(base + 1)
+    mesh.append_index(base + 2)
 }
 
 func without_duplicate_end(source:@Math.Vec2[]) Math.Vec2[] {

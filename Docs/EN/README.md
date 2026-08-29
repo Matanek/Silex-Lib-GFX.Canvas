@@ -67,6 +67,25 @@ For successive revisions, pass the previous snapshot as `reuse:previous`.
 Identical text commands retain their revision and glyph coverage while vector
 geometry can change independently.
 
+A renderer that continuously animates the same drawing uses `Canvas.Prepared`
+instead. The Canvas then rewrites geometry into two alternating retained
+storages: their capacity is recycled, the previous topology remains available
+to detect unchanged geometry, and text layers update independently.
+
+```sx
+var prepared = Canvas.Prepared()
+drawing.prepare(prepared)
+
+// After clear(), paint(...), or any other revision of the same Canvas:
+drawing.prepare(prepared)
+let geometry = prepared.geometry()
+```
+
+The `prepare(prepared, width, height)` overload frames text layers. Circles,
+rectangles, and straight lines compile to six-vertex analytic quads; the shader
+evaluates radius, width, orientation, and cap instead of retessellating rounded
+contours on the CPU.
+
 `Snapshot.text_layers()` gives every text command a stable identity and its own
 lazy coverage image. A renderer can therefore upload only the changed label.
 The coverage cache is bounded to 256 entries.

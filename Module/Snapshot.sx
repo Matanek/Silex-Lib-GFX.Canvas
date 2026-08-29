@@ -37,7 +37,7 @@ public class Snapshot {
         self.text_scale = 1.0
     }
 
-    module init(geometry:Mesh, commands:Command[], width:int, height:int) {
+    module init(geometry:Mesh, commands:@Command[], width:int, height:int) {
         self.identity = Snapshot.next_identity
         Snapshot.next_identity++
         self.retained_geometry_revision = Snapshot.next_geometry_revision
@@ -57,7 +57,7 @@ public class Snapshot {
         self.text_scale = 1.0
     }
 
-    module init(geometry:Mesh, commands:Command[]) {
+    module init(geometry:Mesh, commands:@Command[]) {
         self.identity = Snapshot.next_identity
         Snapshot.next_identity++
         self.retained_geometry_revision = Snapshot.next_geometry_revision
@@ -107,7 +107,7 @@ public class Snapshot {
         panic("GFX retained drawing could not cache its text layer")
     }
 
-    module func reuse_unchanged(previous:@Snapshot) {
+    package func reuse_unchanged(previous:@Snapshot) {
         if same_geometry(self.retained_geometry, previous.retained_geometry) {
             self.retained_geometry_revision = previous.retained_geometry_revision
         }
@@ -182,6 +182,14 @@ func same_geometry(first:@Mesh, second:@Mesh) bool {
         index++
     }
     return true
+}
+
+package func retained_text_snapshot(commands:@Command[], width:int, height:int) Snapshot {
+    return Snapshot(Mesh(), commands, width, height)
+}
+
+package func retained_unbounded_text_snapshot(commands:@Command[]) Snapshot {
+    return Snapshot(Mesh(), commands)
 }
 
 func create_text_layers(

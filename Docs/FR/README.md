@@ -69,6 +69,26 @@ Pour des révisions successives, passez l’ancien snapshot par `reuse:previous`
 Les commandes texte identiques gardent leur révision et leur couverture de
 glyphes, tandis que la géométrie vectorielle peut changer indépendamment.
 
+Un renderer qui anime continuellement le même dessin emploie plutôt
+`Canvas.Prepared`. Le Canvas réécrit alors sa géométrie dans deux stockages
+retenus alternés : leur capacité est recyclée, la topologie précédente reste
+disponible pour détecter une géométrie inchangée et les couches de texte sont
+mises à jour indépendamment.
+
+```sx
+var prepared = Canvas.Prepared()
+drawing.prepare(prepared)
+
+// Après clear(), paint(...) ou toute autre révision du même Canvas :
+drawing.prepare(prepared)
+let geometry = prepared.geometry()
+```
+
+La surcharge `prepare(prepared, width, height)` cadre les couches de texte.
+Les cercles, rectangles et lignes droites sont compilés en quads analytiques
+de six sommets ; rayon, largeur, orientation et terminaison sont évalués par le
+shader au lieu de tesseller à nouveau les contours ronds sur le CPU.
+
 `Snapshot.text_layers()` donne à chaque commande de texte une identité stable
 et sa propre image de couverture paresseuse. Un renderer peut donc transférer
 seulement le libellé modifié. Le cache de couverture est borné à 256 entrées.
