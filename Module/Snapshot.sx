@@ -1,6 +1,7 @@
 use GFX.Assets.Image
 use GFX.Canvas.Geometry.Mesh
 use GFX.Canvas.Command
+use GFX.Canvas.Command.same_text_content
 use GFX.Canvas.Rasterizer
 use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.TextLayer.TextLayer
@@ -274,7 +275,7 @@ func same_text_commands(first:@Command[], second:@Command[]) bool {
             text(left) => {
                 match second[index] {
                     text(right) => {
-                        equal = left.value == right.value &&
+                        equal = same_text_content(left, right) &&
                             left.position == right.position &&
                             same_text_style(left.style, right.style) &&
                             same_snapshot_text_clip(left.clip, right.clip)

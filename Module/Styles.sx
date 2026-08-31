@@ -112,6 +112,7 @@ public struct TextStyle {
     var weight:TextWeight
     var font:Font?
     var fixed_advance:float?
+    var line_height:float?
     var variations:VectorFont.Variation[]
 
     init(
@@ -121,6 +122,7 @@ public struct TextStyle {
         weight:TextWeight = TextWeight.regular,
         font:Font? = null,
         fixed_advance:float? = null,
+        line_height:float? = null,
         variations:VectorFont.Variation[] = []
     ) {
         if size <= 0.0 { panic("GFX.Canvas text size must be positive") }
@@ -128,6 +130,9 @@ public struct TextStyle {
             if advance <= 0.0 {
                 panic("GFX.Canvas fixed text advance must be positive")
             }
+        }
+        if let height = line_height {
+            if height <= 0.0 { panic("GFX.Canvas text line height must be positive") }
         }
         if weight == TextWeight.bold && has_weight_variation(variations) {
             panic("GFX.Canvas bold text cannot also specify a wght variation")
@@ -138,6 +143,7 @@ public struct TextStyle {
         self.weight = weight
         self.font = resolved_font(font)
         self.fixed_advance = fixed_advance
+        self.line_height = line_height
         self.variations = variations
     }
 
@@ -173,6 +179,7 @@ module func same_text_style(first:@TextStyle, second:@TextStyle) bool {
         first.weight == second.weight &&
         first.font == second.font &&
         first.fixed_advance == second.fixed_advance &&
+        first.line_height == second.line_height &&
         same_text_variations(first.variations, second.variations)
 }
 

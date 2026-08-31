@@ -1,4 +1,5 @@
 use GFX.Canvas.Command
+use GFX.Canvas.Command.same_text_content
 use GFX.Canvas.Rasterizer
 use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.Styles.TextAlignment
@@ -96,6 +97,36 @@ public class TextLayer {
         return Color.transparent()
     }
 
+    func position() Math.Vec2 {
+        if let command = self.current_command {
+            match command {
+                text(value) => { return value.position }
+                else => {}
+            }
+        }
+        return Math.Vec2()
+    }
+
+    func block_identity() int {
+        if let command = self.current_command {
+            match command {
+                text(value) => { return value.block_identity }
+                else => {}
+            }
+        }
+        return 0
+    }
+
+    func block_revision() int {
+        if let command = self.current_command {
+            match command {
+                text(value) => { return value.block_revision }
+                else => {}
+            }
+        }
+        return 0
+    }
+
     func clip() Rect? {
         if let command = self.current_command {
             match command {
@@ -181,7 +212,9 @@ public class TextLayer {
                         value.style.variations
                     )
                     let baseline = Math.ceil(instance.metrics().ascender * density as float64) as int
-                    let line_height = Math.ceil(instance.metrics().line_height) as int as float * density
+                    var line_height = Math.ceil(instance.metrics().line_height) as int as float
+                    if let explicit = value.style.line_height { line_height = explicit }
+                    line_height *= density
                     var line_index = 0
                     while line_index < self.retained_runs.count() {
                         result.append(TextCoverageRun(
@@ -267,6 +300,11 @@ public class TextLayer {
         if let command = self.current_command {
             match command {
                 text(value) => {
+                    if let block = value.block {
+                        self.retained_runs = block.glyph_runs()
+                        self.retained_runs_ready = true
+                        return
+                    }
                     var instance = value.style.typeface().instance(
                         value.style.size,
                         text_weight_key(value.style.weight),
@@ -332,7 +370,8 @@ public class TextLayer {
                         value.style.variations
                     )
                     let ascender = Math.ceil(instance.metrics().ascender) as int as float
-                    let line_height = Math.ceil(instance.metrics().line_height) as int as float
+                    var line_height = Math.ceil(instance.metrics().line_height) as int as float
+                    if let explicit = value.style.line_height { line_height = explicit }
                     var line = 0
                     while line < self.retained_runs.count() {
                         result.append(Math.Vec2(
@@ -421,6 +460,7 @@ func same_shaping_style(first:@TextStyle, second:@TextStyle) bool {
         first.weight == second.weight &&
         first.font == second.font &&
         first.fixed_advance == second.fixed_advance &&
+        first.line_height == second.line_height &&
         same_text_variations(first.variations, second.variations)
 }
 
@@ -429,7 +469,8 @@ func same_shaping_command(first:@Command, second:@Command) bool {
         text(left) => {
             match second {
                 text(right) => {
-                    return left.value == right.value && same_shaping_style(left.style, right.style)
+                    return same_text_content(left, right) &&
+                        same_shaping_style(left.style, right.style)
                 }
                 else => {}
             }
@@ -444,7 +485,7 @@ func same_raster_content(first:@Command, second:@Command) bool {
         text(left) => {
             match second {
                 text(right) => {
-                    return left.value == right.value &&
+                    return same_text_content(left, right) &&
                         same_text_style(left.style, right.style) &&
                         same_text_clip(left.clip, right.clip)
                 }
@@ -476,7 +517,7 @@ func same_text(first:@Command, second:@Command) bool {
         text(left) => {
             match second {
                 text(right) => {
-                    return left.value == right.value &&
+                    return same_text_content(left, right) &&
                         left.position == right.position &&
                         same_text_style(left.style, right.style) &&
                         same_text_clip(left.clip, right.clip)

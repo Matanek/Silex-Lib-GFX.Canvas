@@ -28,3 +28,4 @@ public use GFX.Canvas.TextLayer.TextLayer
 public use GFX.Canvas.TextLayer.TextGlyphPlacement
 public use GFX.Canvas.TextLayer.TextCoverageRun
 public use GFX.Canvas.TextLayer.TextVectorError
+public use GFX.Canvas.TextBlock.TextBlock

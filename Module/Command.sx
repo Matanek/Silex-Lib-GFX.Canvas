@@ -5,6 +5,7 @@ use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.Styles.Fill
 use GFX.Canvas.Styles.Stroke
 use GFX.Canvas.Styles.TextStyle
+use GFX.Canvas.TextBlock.TextBlock
 use STD.Math
 
 public struct FillRect { let shape:Rect; let style:Fill }
@@ -19,18 +20,36 @@ public struct Text {
     let position:Math.Vec2
     var style:TextStyle
     let clip:Rect?
+    let block_identity:int
+    let block_revision:int
+    var block:TextBlock? = null
 
     init(
         value:str,
         position:Math.Vec2,
         style:TextStyle,
-        clip:Rect? = null
+        clip:Rect? = null,
+        block_identity:int = 0,
+        block_revision:int = 0,
+        block:TextBlock? = null
     ) {
         self.value = value
         self.position = position
         self.style = style
         self.clip = clip
+        self.block_identity = block_identity
+        self.block_revision = block_revision
+        self.block = block
     }
+}
+
+module func same_text_content(first:@Text, second:@Text) bool {
+    if first.block_identity > 0 || second.block_identity > 0 {
+        return first.block_identity > 0 &&
+            first.block_identity == second.block_identity &&
+            first.block_revision == second.block_revision
+    }
+    return first.value == second.value
 }
 
 public enum Command {

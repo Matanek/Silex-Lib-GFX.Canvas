@@ -736,9 +736,11 @@ func measure_font_text(value:str, style:TextStyle, font:Font) TextMetrics {
         if instance.synthesis().embolden { line_width += 1.0 }
         width = Math.max(width, line_width)
     }
+    var line_height = Math.ceil(instance.metrics().line_height) as int as float
+    if let explicit = style.line_height { line_height = explicit }
     let metrics = TextMetrics(
         width:width,
-        height:Math.ceil(instance.metrics().line_height) as int as float * lines.count() as float,
+        height:line_height * lines.count() as float,
         lines:lines.count()
     )
     font.retain_metrics(cache_key, CachedTextMetrics(
@@ -785,7 +787,9 @@ func draw_font_text(
         font_weight_key(style.weight),
         style.variations
     )
-    let line_height = Math.ceil(instance.metrics().line_height) as int as float * density
+    var line_height = Math.ceil(instance.metrics().line_height) as int as float
+    if let explicit = style.line_height { line_height = explicit }
+    line_height *= density
     let lines = StandardText.split(value, "\n")
     var line_index = 0
     while line_index < lines.count() {
@@ -942,9 +946,11 @@ func fixed_advance_metrics(
         } else { columns++ }
     }
     maximum_columns = max_int(maximum_columns, columns)
+    var line_height = Math.ceil(instance.metrics().line_height) as int as float
+    if let explicit = style.line_height { line_height = explicit }
     return TextMetrics(
         width:maximum_columns as float * advance,
-        height:Math.ceil(instance.metrics().line_height) as int as float * lines as float,
+        height:line_height * lines as float,
         lines:lines
     )
 }
@@ -975,7 +981,9 @@ func draw_fixed_advance_text(
         font_weight_key(style.weight),
         style.variations
     )
-    let line_height = Math.ceil(instance.metrics().line_height) as int as float * density
+    var line_height = Math.ceil(instance.metrics().line_height) as int as float
+    if let explicit = style.line_height { line_height = explicit }
+    line_height *= density
     let lines = StandardText.split(value, "\n")
     var line_index = 0
     while line_index < lines.count() {

@@ -7,6 +7,7 @@ use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.Styles.Fill
 use GFX.Canvas.Styles.Stroke
 use GFX.Canvas.Styles.TextStyle
+use GFX.Canvas.TextBlock.TextBlock
 use STD.Math
 
 test "paint and clear a canvas without SDL or a renderer" {
@@ -187,6 +188,44 @@ test "reuse shaping when only text color changes" {
     assert(updated_layer.revision() == previous_layer.revision() + 1)
     assert(updated_layer.shaping_revision() == shaping_revision)
     assert(second_run.glyphs() == first_run.glyphs())
+}
+
+test "retain a multiline text block while placement and clipping change" {
+    var block = TextBlock(
+        "Alpha\nBeta",
+        TextStyle(size:14.0, line_height:19.0)
+    )
+    var first = Canvas()
+    first.paint(func(painter:&Painter) {
+        painter.text_block(
+            block,
+            Math.Vec2(8.0, 20.0),
+            clip:Rect(Math.Vec2(4.0, 8.0), Math.Vec2(100.0, 42.0))
+        )
+    })
+    var previous = first.snapshot(120, 60)
+    var previous_layer = previous.text_layers()[0]
+    var previous_runs = previous_layer.coverage_runs(2.0)
+    assert(previous_layer.block_identity() == block.identity())
+    assert(previous_layer.position() == Math.Vec2(8.0, 20.0))
+    assert(previous_runs.count() == 2)
+    assert(previous_runs[1].origin.y - previous_runs[0].origin.y == 19.0)
+    let shaping_revision = previous_layer.shaping_revision()
+
+    var moved = Canvas()
+    moved.paint(func(painter:&Painter) {
+        painter.text_block(
+            block,
+            Math.Vec2(8.0, 7.5),
+            clip:Rect(Math.Vec2(4.0, 10.0), Math.Vec2(100.0, 38.0))
+        )
+    })
+    var retained = moved.snapshot(120, 60, reuse:previous)
+    var retained_layer = retained.text_layers()[0]
+    assert(retained_layer.block_identity() == block.identity())
+    assert(retained_layer.position() == Math.Vec2(8.0, 7.5))
+    assert(retained_layer.shaping_revision() == shaping_revision)
+    assert(retained_layer.coverage_runs(2.0).count() == 2)
 }
 
 test "retain an unbounded snapshot without inventing a drawing frame" {

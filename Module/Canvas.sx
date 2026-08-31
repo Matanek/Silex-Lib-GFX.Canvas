@@ -16,6 +16,7 @@ use GFX.Canvas.Styles.Fill
 use GFX.Canvas.Styles.Stroke
 use GFX.Canvas.Styles.TextMetrics
 use GFX.Canvas.Styles.TextStyle
+use GFX.Canvas.TextBlock.TextBlock
 use GFX.Canvas.Vectorizer
 use STD.Math
 
@@ -302,6 +303,23 @@ public struct Painter {
             position:position,
             style:style,
             clip:clip
+        )))
+    }
+
+    func text_block(
+        block:TextBlock,
+        position:Math.Vec2,
+        clip:Rect? = null
+    ) {
+        if let bounds = clip { validate_text_clip(bounds) }
+        self.canvas.append(Command.text(Command.Text(
+            value:block.value(),
+            position:position,
+            style:block.style(),
+            clip:clip,
+            block_identity:block.identity(),
+            block_revision:block.revision(),
+            block:block
         )))
     }
 
