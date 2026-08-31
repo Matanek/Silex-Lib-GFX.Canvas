@@ -1,13 +1,28 @@
 use GFX.Canvas
 use GFX.Color
 use GFX.Input
+use GFX.Font as VectorFont
 use STD.Math
+
+func construct_compatible_fonts(bytes:uint8[], path:str) {
+    var encoded = Canvas.Font(bytes)
+    var loaded = Canvas.Font(path)
+    assert(encoded.face().identity() != "")
+    assert(loaded.face().identity() != "")
+}
 
 struct ConsumerSession:Canvas.Session {
     func drawing(width:int, height:int) Canvas { return Canvas() }
     func update(delta:float) bool { return false }
     func handle(event:@Input.Event) bool { return false }
     func accepts_text_input() bool { return false }
+}
+
+func required_face(result:Result<VectorFont.Face, VectorFont.Error>) VectorFont.Face {
+    match result {
+        failure(error) => { panic(error.detail) }
+        success(face) => { return face }
+    }
 }
 
 test "consume the public Canvas surface" {
@@ -87,4 +102,46 @@ test "place grapheme clusters on a fixed text grid" {
     let layer = drawing.snapshot(48, 24).text_layers()[0].text_layer(2.0)
     assert(layer.size.x == 40.0)
     assert(layer.image.width() == 80)
+}
+
+test "retain canonical shaped runs and expose vector outlines" {
+    var face = required_face(VectorFont.Face.default())
+    var font = Canvas.Font(face)
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.text(
+            "office",
+            Math.Vec2(4.0, 3.0),
+            Canvas.TextStyle(
+                size:18.0,
+                font:font,
+                variations:[VectorFont.Variation("wght", 560.0)]
+            )
+        )
+    })
+    var layer = drawing.snapshot(128, 32).text_layers()[0]
+    var run = layer.glyph_run()
+    assert(run.glyph_count() > 0)
+    assert(run.glyph_count() < 6)
+    match layer.vector_outlines() {
+        failure(error) => { panic(error.detail) }
+        success(placements) => {
+            assert(placements.count() == run.glyph_count())
+            assert(placements[0].baseline.y > 3.0)
+        }
+    }
+
+    var grid = Canvas()
+    grid.paint(func(painter:&Canvas.Painter) {
+        painter.text(
+            "a👩‍🚀b",
+            Math.Vec2(),
+            Canvas.TextStyle(size:16.0, font:font, fixed_advance:10.0)
+        )
+    })
+    var grid_layer = grid.snapshot(48, 24).text_layers()[0]
+    var grid_run = grid_layer.glyph_run()
+    assert(grid_run.metrics().advance.x == 30.0)
+    assert(grid_run.glyphs()[0].origin_x < 10.0)
+    assert(grid_run.glyphs()[-1].origin_x >= 20.0)
 }

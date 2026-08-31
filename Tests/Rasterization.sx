@@ -1,9 +1,19 @@
 use GFX.Color
 use GFX.Assets.Image
 use GFX.Canvas
-use STD.File
+use GFX.Font as VectorFont
+use STD.Crypto
 use STD.Math
 use Interop.C
+
+func required_vector_face(
+    result:Result<VectorFont.Face, VectorFont.Error>
+) VectorFont.Face {
+    match result {
+        failure(error) => { panic(error.detail) }
+        success(value) => { return value }
+    }
+}
 
 func paint_sample(painter:&Canvas.Painter) {
     painter.fill(
@@ -137,7 +147,9 @@ test "reuse cached text coverage across colors and drawings" {
         )
     })
     let cyan = first.rasterize(120, 24)
-    assert(font.cached_raster_count() == 1)
+    let retained_glyphs = font.cached_raster_count()
+    assert(retained_glyphs > 0)
+    assert(retained_glyphs <= 256)
 
     var second = Canvas()
     second.paint(func(painter:&Canvas.Painter) {
@@ -148,7 +160,7 @@ test "reuse cached text coverage across colors and drawings" {
         )
     })
     let orange = second.rasterize(120, 24)
-    assert(font.cached_raster_count() == 1)
+    assert(font.cached_raster_count() == retained_glyphs)
     assert(cyan.packed_pixels() != orange.packed_pixels())
 
     let metrics = second.measure_text(
@@ -157,10 +169,10 @@ test "reuse cached text coverage across colors and drawings" {
     )
     assert(metrics.width > 0.0)
     assert(metrics.height > 0.0)
-    assert(font.cached_raster_count() == 1)
+    assert(font.cached_raster_count() == retained_glyphs)
 }
 
-test "bound the cached text coverage" {
+test "share and bound cached glyph coverage under label churn" {
     var font = Canvas.Font.default()
     var index = 0
     while index < 300 {
@@ -175,7 +187,8 @@ test "bound the cached text coverage" {
         let image = drawing.rasterize(96, 20)
         index++
     }
-    assert(font.cached_raster_count() == 256)
+    assert(font.cached_raster_count() > 0)
+    assert(font.cached_raster_count() <= 256)
 }
 
 test "rasterize retained text at the display pixel density" {
@@ -262,14 +275,9 @@ func paint_vector_text(painter:&Canvas.Painter, font:Canvas.Font) {
     )
 }
 
-test "load a font and rasterize shaped UTF-8 text" {
-    let path = "/private/tmp/silex-gfx-canvas-noto-sans.ttf"
-    let encoded = embed_bytes("../Assets/Fonts/NotoSans.ttf")
-    match File.write_all(path, @encoded[0:encoded.count()]) {
-        failure(error) => { panic(error.detail) }
-        success => {}
-    }
-    var font = Canvas.Font(path)
+test "wrap a GFX.Font face and rasterize shaped UTF-8 text" {
+    var face = required_vector_face(VectorFont.Face.default())
+    var font = Canvas.Font(face)
     var style = Canvas.TextStyle(size:18.0, font:font)
     var drawing = Canvas()
     drawing.paint(func(painter:&Canvas.Painter) { paint_vector_text(painter, font) })
@@ -287,37 +295,6 @@ test "load a font and rasterize shaped UTF-8 text" {
         index += 4
     }
     assert(visible > 100)
-}
-
-test "create a font from encoded asset bytes" {
-    var font = Canvas.Font(embed_bytes("../Assets/Fonts/NotoSans.ttf"))
-    var drawing = Canvas()
-    drawing.paint(func(painter:&Canvas.Painter) {
-        painter.text(
-            "Silex",
-            Math.Vec2(),
-            Canvas.TextStyle(size:18.0, color:Color.white(), font:font)
-        )
-    })
-    let metrics = drawing.measure_text(
-        "Silex",
-        Canvas.TextStyle(size:18.0, font:font)
-    )
-    assert(metrics.width > 30.0)
-    assert(metrics.height > 10.0)
-
-    let pixels = drawing.rasterize(64, 24).pixels()
-    var visible_after_first_glyph = 0
-    var y = 0
-    while y < 24 {
-        var x = 16
-        while x < 64 {
-            if pixels[(y * 64 + x) * 4 + 3] > 0 { visible_after_first_glyph++ }
-            x++
-        }
-        y++
-    }
-    assert(visible_after_first_glyph > 20)
 }
 
 func visible_axis_glyph_pixels(
@@ -364,8 +341,10 @@ func visible_axis_glyph_pixels(
         if pixels[index] > 0 { visible++ }
         index += 4
     }
-    assert(minimum_x + maximum_x >= 39)
-    assert(minimum_x + maximum_x <= 41)
+    // Alignment is defined by the shaped advance. Individual glyph ink may be
+    // asymmetric around it, notably the hinted diagonal of Noto Sans Z.
+    assert(minimum_x + maximum_x >= 38)
+    assert(minimum_x + maximum_x <= 42)
     assert(minimum_y + maximum_y >= 39)
     assert(minimum_y + maximum_y <= 41)
     return visible
@@ -378,6 +357,12 @@ test "use the complete default font for viewport labels" {
     assert(bold_x > regular_x)
     assert(visible_axis_glyph_pixels("Y", Canvas.TextWeight.bold, font) > 10)
     assert(visible_axis_glyph_pixels("Z", Canvas.TextWeight.bold, font) > 10)
+
+    var monospace = Canvas.Font.monospace()
+    assert(
+        visible_axis_glyph_pixels("X", Canvas.TextWeight.bold, monospace) >
+        visible_axis_glyph_pixels("X", Canvas.TextWeight.regular, monospace)
+    )
 
     var drawing = Canvas()
     var style = Canvas.TextStyle(size:16.0, font:font)
@@ -394,6 +379,32 @@ test "use the complete default font for viewport labels" {
         index += 4
     }
     assert(visible > 300)
+}
+
+test "pin hinted text pixels for ligatures marks and fixed cells" {
+    var drawing = Canvas()
+    var proportional = Canvas.Font.default()
+    var monospace = Canvas.Font.monospace()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.text(
+            "office e\u{301} Ελληνικά",
+            Math.Vec2(3.0, 2.0),
+            Canvas.TextStyle(size:14.0, color:Color.white(), font:proportional)
+        )
+        painter.text(
+            "aé👩‍🚀b",
+            Math.Vec2(3.0, 24.0),
+            Canvas.TextStyle(
+                size:14.0,
+                color:Color.cyan_500(),
+                font:monospace,
+                fixed_advance:10.0
+            )
+        )
+    })
+    let pixels = drawing.rasterize(192, 48).pixels()
+    let digest = Crypto.sha256(@pixels[0:pixels.count()])
+    assert(digest == "b5cfa3ecf2eb9ead47408e2b690b8aa30d49b51119398fcf8758b054839cfaf3")
 }
 
 test "build bounded retained geometry from drawing commands" {

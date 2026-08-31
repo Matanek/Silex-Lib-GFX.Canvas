@@ -1,176 +1,308 @@
-use Interop.C
-use Interop.Boundary
+use GFX.Font as VectorFont
+use STD.Math
 
 module struct TextRaster {
     let width:int
     let height:int
     let alpha:str
+    let offset_x:int
+    let offset_y:int
+}
+
+module struct CachedTextMetrics {
+    let width:float
+    let height:float
+    let lines:int
 }
 
 public class Font {
-    private static let raster_cache_capacity:int = 256
     private static var bundled_default:Font? = null
     private static var bundled_monospace:Font? = null
-    private let source_path:str?
-    private let encoded_data:str
-    private let encoded_size:int
-    private var face_sizes:float[]
-    private var face_weights:int[]
-    private var face_handles:uint[]
-    private var raster_values:str[]
-    private var raster_sizes:float[]
-    private var raster_weights:int[]
-    private var raster_widths:int[]
-    private var raster_heights:int[]
-    private var raster_alpha:str[]
-    private var next_raster:int
+    private var face_value:VectorFont.Face
+    private var instance_sizes:float[]
+    private var instance_weights:int[]
+    private var instance_variations:VectorFont.Variation[][]
+    private var instance_values:VectorFont.Instance[]
+    private var raster_instances:VectorFont.Instance[]
+    private var raster_glyph_ids:uint32[]
+    private var raster_densities:float[]
+    private var raster_values:TextRaster[]
+    private var raster_slots:int[]
+    private var metric_keys:str[]
+    private var metric_values:CachedTextMetrics[]
+    private var next_metric_key:int
 
     init(source:uint8[]) {
-        if source.count() == 0 { panic("GFX.Canvas font data cannot be empty") }
-        self.source_path = null
-        self.encoded_data = C.string(@source[0:source.count()])
-        self.encoded_size = source.count()
-        self.face_sizes = []
-        self.face_weights = []
-        self.face_handles = []
+        self.face_value = decoded_face(VectorFont.Face.decode(source))
+        self.instance_sizes = []
+        self.instance_weights = []
+        self.instance_variations = []
+        self.instance_values = []
+        self.raster_instances = []
+        self.raster_glyph_ids = []
+        self.raster_densities = []
         self.raster_values = []
-        self.raster_sizes = []
-        self.raster_weights = []
-        self.raster_widths = []
-        self.raster_heights = []
-        self.raster_alpha = []
-        self.next_raster = 0
+        self.raster_slots = empty_raster_slots()
+        self.metric_keys = []
+        self.metric_values = []
+        self.next_metric_key = 0
     }
 
     init(source:str) {
         if source == "" { panic("GFX.Canvas font path cannot be empty") }
-        self.source_path = source
-        self.encoded_data = ""
-        self.encoded_size = 0
-        self.face_sizes = []
-        self.face_weights = []
-        self.face_handles = []
+        self.face_value = decoded_face(VectorFont.Face.open(source))
+        self.instance_sizes = []
+        self.instance_weights = []
+        self.instance_variations = []
+        self.instance_values = []
+        self.raster_instances = []
+        self.raster_glyph_ids = []
+        self.raster_densities = []
         self.raster_values = []
-        self.raster_sizes = []
-        self.raster_weights = []
-        self.raster_widths = []
-        self.raster_heights = []
-        self.raster_alpha = []
-        self.next_raster = 0
+        self.raster_slots = empty_raster_slots()
+        self.metric_keys = []
+        self.metric_values = []
+        self.next_metric_key = 0
+    }
+
+    init(source:VectorFont.Face) {
+        self.face_value = source
+        self.instance_sizes = []
+        self.instance_weights = []
+        self.instance_variations = []
+        self.instance_values = []
+        self.raster_instances = []
+        self.raster_glyph_ids = []
+        self.raster_densities = []
+        self.raster_values = []
+        self.raster_slots = empty_raster_slots()
+        self.metric_keys = []
+        self.metric_values = []
+        self.next_metric_key = 0
     }
 
     static func default() Font {
         if let cached = Font.bundled_default { return cached }
-        var font = Font(embed_bytes("../Assets/Fonts/NotoSans.ttf"))
+        var font = Font(decoded_face(VectorFont.Face.default()))
         Font.bundled_default = font
         return font
     }
 
     static func monospace() Font {
         if let cached = Font.bundled_monospace { return cached }
-        var font = Font(embed_bytes("../Assets/Fonts/NotoSansMono-Regular.ttf"))
+        var font = Font(decoded_face(VectorFont.Face.monospace()))
         Font.bundled_monospace = font
         return font
     }
 
     static func load(path:str) Font { return Font(path) }
 
-    drop {
-        for handle in self.face_handles {
-            ttf_close_font(C.pointer_bits(handle))
+    func face() VectorFont.Face { return self.face_value }
+
+    module func instance(
+        size:float,
+        weight:int,
+        variations:VectorFont.Variation[] = []
+    ) VectorFont.Instance {
+        var index = 0
+        while index < self.instance_values.count() {
+            if self.instance_sizes[index] == size &&
+                self.instance_weights[index] == weight &&
+                same_variations(self.instance_variations[index], variations)
+            {
+                return self.instance_values[index]
+            }
+            index++
         }
+
+        var effective = variations
+        var synthesis = VectorFont.Synthesis()
+        if weight == 1 && !has_weight_variation(effective) {
+            if axis = weight_axis(self.face_value) {
+                var bold:float64 = 700.0
+                if bold < axis.minimum { bold = axis.minimum }
+                if bold > axis.maximum { bold = axis.maximum }
+                effective.append(VectorFont.Variation("wght", bold))
+            } else {
+                synthesis = VectorFont.Synthesis(embolden:true)
+            }
+        }
+        var created = decoded_instance(VectorFont.Instance.create(
+            self.face_value,
+            size:size as float64,
+            variations:effective,
+            synthesis:synthesis
+        ))
+        if self.instance_values.count() >= 32 { self.discard_oldest_instance() }
+        self.instance_sizes.append(size)
+        self.instance_weights.append(weight)
+        self.instance_variations.append(variations)
+        self.instance_values.append(created)
+        return created
     }
 
-    module func path() str? { return self.source_path }
-    module func packed_data() str { return self.encoded_data }
-    module func byte_count() int { return self.encoded_size }
-    package func cached_face_count() int { return self.face_handles.count() }
+    package func cached_face_count() int { return self.instance_values.count() }
     package func cached_raster_count() int { return self.raster_values.count() }
 
-    module func cached_face(size:float, weight:int) uint? {
+    module func cached_metrics(key:str) CachedTextMetrics? {
         var index = 0
-        while index < self.face_handles.count() {
-            if self.face_sizes[index] == size && self.face_weights[index] == weight {
-                return self.face_handles[index]
-            }
+        while index < self.metric_keys.count() {
+            if self.metric_keys[index] == key { return self.metric_values[index] }
             index++
         }
         return null
     }
 
-    module func retain_face(size:float, weight:int, handle:uint) uint? {
-        var evicted:uint? = null
-        if self.face_handles.count() >= 16 {
-            evicted = self.face_handles[0]
-            var sizes:float[] = []
-            var weights:int[] = []
-            var handles:uint[] = []
-            var index = 1
-            while index < self.face_handles.count() {
-                sizes.append(self.face_sizes[index])
-                weights.append(self.face_weights[index])
-                handles.append(self.face_handles[index])
-                index++
-            }
-            self.face_sizes = sizes
-            self.face_weights = weights
-            self.face_handles = handles
+    module func retain_metrics(key:str, metrics:CachedTextMetrics) {
+        if self.metric_keys.count() < 512 {
+            self.metric_keys.append(key)
+            self.metric_values.append(metrics)
+            return
         }
-        self.face_sizes.append(size)
-        self.face_weights.append(weight)
-        self.face_handles.append(handle)
-        return evicted
+        self.metric_keys.replace(self.next_metric_key, key)
+        self.metric_values.replace(self.next_metric_key, metrics)
+        self.next_metric_key = (self.next_metric_key + 1) % 512
     }
 
     module func cached_raster(
-        value:str,
-        size:float,
-        weight:int
+        instance:VectorFont.Instance,
+        glyph_id:uint32,
+        density:float
     ) TextRaster? {
-        var index = 0
-        while index < self.raster_values.count() {
-            if self.raster_values[index] == value &&
-                self.raster_sizes[index] == size &&
-                self.raster_weights[index] == weight
+        let index = self.raster_slots[self.raster_slot(instance, glyph_id, density)]
+        if index >= 0 {
+            if self.raster_instances[index] == instance &&
+                self.raster_glyph_ids[index] == glyph_id &&
+                self.raster_densities[index] == density
             {
-                return TextRaster(
-                    width:self.raster_widths[index],
-                    height:self.raster_heights[index],
-                    alpha:self.raster_alpha[index]
-                )
+                return self.raster_values[index]
             }
-            index++
         }
         return null
     }
 
     module func retain_raster(
-        value:str,
-        size:float,
-        weight:int,
+        instance:VectorFont.Instance,
+        glyph_id:uint32,
+        density:float,
         raster:TextRaster
     ) {
-        if self.raster_values.count() < Font.raster_cache_capacity {
-            self.raster_values.append(value)
-            self.raster_sizes.append(size)
-            self.raster_weights.append(weight)
-            self.raster_widths.append(raster.width)
-            self.raster_heights.append(raster.height)
-            self.raster_alpha.append(raster.alpha)
+        let slot = self.raster_slot(instance, glyph_id, density)
+        let index = self.raster_slots[slot]
+        if index >= 0 {
+            if self.raster_instances[index] == instance &&
+                self.raster_glyph_ids[index] == glyph_id &&
+                self.raster_densities[index] == density
+            {
+                return
+            }
+            self.raster_instances.replace(index, instance)
+            self.raster_glyph_ids.replace(index, glyph_id)
+            self.raster_densities.replace(index, density)
+            self.raster_values.replace(index, raster)
             return
         }
-        let index = self.next_raster
-        self.raster_values.replace(index, value)
-        self.raster_sizes.replace(index, size)
-        self.raster_weights.replace(index, weight)
-        self.raster_widths.replace(index, raster.width)
-        self.raster_heights.replace(index, raster.height)
-        self.raster_alpha.replace(index, raster.alpha)
-        self.next_raster = (index + 1) % Font.raster_cache_capacity
+        let retained_index = self.raster_values.count()
+        self.raster_instances.append(instance)
+        self.raster_glyph_ids.append(glyph_id)
+        self.raster_densities.append(density)
+        self.raster_values.append(raster)
+        self.raster_slots.replace(slot, retained_index)
+    }
+
+    private func raster_slot(
+        instance:@VectorFont.Instance,
+        glyph_id:uint32,
+        density:float
+    ) int {
+        var instance_index = 0
+        while instance_index < self.instance_values.count() &&
+            self.instance_values[instance_index] != instance
+        {
+            instance_index++
+        }
+        let glyph_key = glyph_id as uint
+        let density_key = Math.round(density * 64.0) as uint
+        return ((glyph_key * 131 as uint + density_key * 17 as uint +
+            instance_index as uint * 53 as uint) % 256 as uint) as int
+    }
+
+    private func clear_raster_cache() {
+        self.raster_instances = []
+        self.raster_glyph_ids = []
+        self.raster_densities = []
+        self.raster_values = []
+        self.raster_slots = empty_raster_slots()
+    }
+
+    private func discard_oldest_instance() {
+        self.clear_raster_cache()
+        var sizes:float[] = []
+        var weights:int[] = []
+        var variations:VectorFont.Variation[][] = []
+        var instances:VectorFont.Instance[] = []
+        var index = 1
+        while index < self.instance_values.count() {
+            sizes.append(self.instance_sizes[index])
+            weights.append(self.instance_weights[index])
+            variations.append(self.instance_variations[index])
+            instances.append(self.instance_values[index])
+            index++
+        }
+        self.instance_sizes = sizes
+        self.instance_weights = weights
+        self.instance_variations = variations
+        self.instance_values = instances
     }
 }
 
-let ttf_close_font = C.function<func(C.Pointer<uint8>) void>(
-    library:Boundary.SDL3_ttf,
-    name:"TTF_CloseFont"
-)
+func decoded_face(result:Result<VectorFont.Face, VectorFont.Error>) VectorFont.Face {
+    match result {
+        failure(error) => { panic("GFX.Canvas could not load font: " + error.detail) }
+        success(face) => { return face }
+    }
+}
+
+func decoded_instance(
+    result:Result<VectorFont.Instance, VectorFont.Error>
+) VectorFont.Instance {
+    match result {
+        failure(error) => { panic("GFX.Canvas could not create font instance: " + error.detail) }
+        success(instance) => { return instance }
+    }
+}
+
+func same_variations(
+    first:@VectorFont.Variation[],
+    second:@VectorFont.Variation[]
+) bool {
+    if first.count() != second.count() { return false }
+    var index = 0
+    while index < first.count() {
+        if first[index].tag != second[index].tag || first[index].value != second[index].value {
+            return false
+        }
+        index++
+    }
+    return true
+}
+
+func has_weight_variation(variations:@VectorFont.Variation[]) bool {
+    for variation in variations {
+        if variation.tag == "wght" { return true }
+    }
+    return false
+}
+
+func weight_axis(face:VectorFont.Face) VectorFont.Axis? {
+    for axis in face.axes() {
+        if axis.tag == "wght" { return axis }
+    }
+    return null
+}
+
+func empty_raster_slots() int[] {
+    var result:int[] = []
+    while result.count() < 256 { result.append(-1) }
+    return result
+}

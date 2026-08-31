@@ -5,6 +5,7 @@ use GFX.Canvas.Rasterizer
 use GFX.Canvas.TextLayer.TextLayer
 use GFX.Canvas.TextLayer.text_layer_unchanged
 use GFX.Canvas.TextLayer.updated_text_layer
+use GFX.Canvas.Styles.same_text_style
 use STD.Math
 
 public class Snapshot {
@@ -224,7 +225,7 @@ func same_text_commands(first:@Command[], second:@Command[]) bool {
                     text(right) => {
                         equal = left.value == right.value &&
                             left.position == right.position &&
-                            left.style == right.style
+                            same_text_style(left.style, right.style)
                     }
                     else => {}
                 }

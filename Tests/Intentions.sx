@@ -6,6 +6,7 @@ use GFX.Canvas.Shapes.Circle
 use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.Styles.Fill
 use GFX.Canvas.Styles.Stroke
+use GFX.Canvas.Styles.TextStyle
 use STD.Math
 
 test "paint and clear a canvas without SDL or a renderer" {
@@ -89,6 +90,34 @@ test "retain unchanged text layers while one label changes" {
     assert(retained_layers[0].revision() == static_revision)
     assert(retained_layers[1].id() == previous_layers[1].id())
     assert(retained_layers[1].revision() == value_revision + 1)
+}
+
+test "reuse shaping when only text color changes" {
+    var first = Canvas()
+    first.paint(func(painter:&Painter) {
+        painter.text("Stable shaping", Math.Vec2(2.0), TextStyle(
+            size:14.0,
+            color:Color.cyan_500()
+        ))
+    })
+    var previous = first.snapshot(160, 32)
+    var previous_layer = previous.text_layers()[0]
+    var first_run = previous_layer.glyph_run()
+    let shaping_revision = previous_layer.shaping_revision()
+
+    var recolored = Canvas()
+    recolored.paint(func(painter:&Painter) {
+        painter.text("Stable shaping", Math.Vec2(2.0), TextStyle(
+            size:14.0,
+            color:Color.orange_500()
+        ))
+    })
+    var updated = recolored.snapshot(160, 32, reuse:previous)
+    var updated_layer = updated.text_layers()[0]
+    var second_run = updated_layer.glyph_run()
+    assert(updated_layer.revision() == previous_layer.revision() + 1)
+    assert(updated_layer.shaping_revision() == shaping_revision)
+    assert(second_run.glyphs() == first_run.glyphs())
 }
 
 test "retain an unbounded snapshot without inventing a drawing frame" {

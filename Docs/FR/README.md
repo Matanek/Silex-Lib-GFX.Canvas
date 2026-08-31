@@ -37,10 +37,12 @@ drawing.paint(func(painter:&Canvas.Painter) {
 let image = drawing.rasterize(128, 48)
 ```
 
-Le package incorpore une police proportionnelle par défaut et une police
-monospace accessible par `Canvas.Font.monospace()`. Une application peut aussi
-fournir un chemin ou des octets encodés. SDL3_ttf reste derrière l’API Font ;
-aucun handle SDL n’est public.
+`GFX.Font` possède les faces proportionnelle et monospace distribuées ;
+`Canvas.Font.default()` et `Canvas.Font.monospace()` restent les façades
+compatibles. Une application peut aussi fournir un chemin, des octets encodés
+ou envelopper une `GFX.Font.Face` déjà validée avec `Canvas.Font(face)`. Canvas
+utilise les runs et couvertures hintées de GFX.Font sans exposer de handle
+natif.
 
 ## Réutiliser les intentions
 
@@ -106,14 +108,20 @@ Les cercles, rectangles et lignes droites sont compilés en quads analytiques
 de six sommets ; rayon, largeur, orientation et terminaison sont évalués par le
 shader au lieu de tesseller à nouveau les contours ronds sur le CPU.
 
-`Snapshot.text_layers()` donne à chaque commande de texte une identité stable
-et sa propre image de couverture paresseuse. Un renderer peut donc transférer
-seulement le libellé modifié. Le cache de couverture est borné à 256 entrées.
+`Snapshot.text_layers()` donne à chaque commande de texte une identité stable,
+son `GlyphRun` canonique et sa propre image de couverture paresseuse.
+`glyph_run()` retourne la ligne homogène ; `glyph_runs()` couvre le multiligne
+et `vector_outlines()` conserve les mêmes glyph IDs, clusters et positions pour
+un renderer vectoriel. Un renderer peut donc transférer seulement le libellé
+modifié. Le cache Canvas direct de bitmaps hintés est borné à 256 emplacements,
+en plus des budgets natifs de GFX.Font.
 
-`TextStyle.fixed_advance` place les graphèmes Unicode sur une grille
-horizontale explicite tout en gardant une seule commande texte. Cette option
-convient aux lignes de terminal ou d’éditeur ; le texte ordinaire conserve les
-avances naturelles de la police.
+`TextStyle.fixed_advance` façonne la ligne entière, désactive les ligatures,
+alternatives contextuelles et kernings qui traverseraient une cellule, puis
+place chaque cluster Unicode sur une origine de grille exacte. Les marks d’un
+cluster restent associés au même run ; aucun octet UTF-8 n’est traité
+isolément. Cette option convient aux lignes de terminal ou d’éditeur ; le
+texte ordinaire conserve les avances naturelles de la police.
 
 ## Peindre une surface mutable
 
@@ -146,7 +154,8 @@ mais ne possède ni fenêtre, ni Application, ni renderer, ni monde ECS.
 
 ## Comprendre la frontière native
 
-GFX.Canvas possède SDL3_ttf et compose son provider avec `GFX.SDL3` sans
-redistribuer SDL3. Des artefacts épinglés existent pour macOS ARM64, Linux x64,
-Windows x64 et Windows ARM64 ; cette dernière cible reste reconnue et
-expérimentale dans la matrice Silex.
+GFX.Canvas ne possède plus de moteur ni d’archive de fonte. Il dépend de
+GFX.Font pour les faces, le shaping, les contours et les couvertures hintées.
+Son provider SDL3 restant sert uniquement les surfaces Canvas existantes et
+compose `GFX.SDL3` sans redistribuer SDL3. GFX.Font porte sa propre matrice
+d’artefacts macOS ARM64, Linux x64, Windows x64 et Windows ARM64.

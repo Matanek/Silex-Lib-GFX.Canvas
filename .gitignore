@@ -1,4 +1,5 @@
 .silex/
+.zig-global-cache/
 .DS_Store
 
 # Native archives are restored from the immutable release assets declared in

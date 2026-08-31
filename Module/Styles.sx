@@ -1,5 +1,6 @@
 use GFX.Color
 use GFX.Canvas.Font.Font
+use GFX.Font as VectorFont
 use STD.Math
 
 public struct Brush {
@@ -111,6 +112,7 @@ public struct TextStyle {
     var weight:TextWeight
     var font:Font?
     var fixed_advance:float?
+    var variations:VectorFont.Variation[]
 
     init(
         size:float = 16.0,
@@ -118,7 +120,8 @@ public struct TextStyle {
         alignment:TextAlignment = TextAlignment.start,
         weight:TextWeight = TextWeight.regular,
         font:Font? = null,
-        fixed_advance:float? = null
+        fixed_advance:float? = null,
+        variations:VectorFont.Variation[] = []
     ) {
         if size <= 0.0 { panic("GFX.Canvas text size must be positive") }
         if let advance = fixed_advance {
@@ -126,15 +129,51 @@ public struct TextStyle {
                 panic("GFX.Canvas fixed text advance must be positive")
             }
         }
+        if weight == TextWeight.bold && has_weight_variation(variations) {
+            panic("GFX.Canvas bold text cannot also specify a wght variation")
+        }
         self.size = size
         self.color = color
         self.alignment = alignment
         self.weight = weight
         self.font = resolved_font(font)
         self.fixed_advance = fixed_advance
+        self.variations = variations
     }
 
     module func typeface() Font { return resolved_font(self.font) }
+}
+
+func has_weight_variation(variations:@VectorFont.Variation[]) bool {
+    for variation in variations {
+        if variation.tag == "wght" { return true }
+    }
+    return false
+}
+
+module func same_text_variations(
+    first:@VectorFont.Variation[],
+    second:@VectorFont.Variation[]
+) bool {
+    if first.count() != second.count() { return false }
+    var index = 0
+    while index < first.count() {
+        if first[index].tag != second[index].tag || first[index].value != second[index].value {
+            return false
+        }
+        index++
+    }
+    return true
+}
+
+module func same_text_style(first:@TextStyle, second:@TextStyle) bool {
+    return first.size == second.size &&
+        first.color == second.color &&
+        first.alignment == second.alignment &&
+        first.weight == second.weight &&
+        first.font == second.font &&
+        first.fixed_advance == second.fixed_advance &&
+        same_text_variations(first.variations, second.variations)
 }
 
 public struct TextMetrics {

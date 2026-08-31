@@ -1,6 +1,24 @@
 use GFX.Canvas.Command
 use GFX.Canvas.Rasterizer
+use GFX.Canvas.Styles.TextAlignment
+use GFX.Canvas.Styles.TextStyle
+use GFX.Canvas.Styles.TextWeight
+use GFX.Canvas.Styles.same_text_style
+use GFX.Canvas.Styles.same_text_variations
+use GFX.Font as VectorFont
 use STD.Math
+use STD.Text as StandardText
+
+public struct TextGlyphPlacement {
+    let glyph:VectorFont.PlacedOutline
+    let baseline:Math.Vec2
+}
+
+public struct TextVectorError {
+    let detail:str
+    let cluster:VectorFont.Cluster?
+    let face_identity:str
+}
 
 // A retained text command keeps its cache identity while its content changes.
 // Custom renderers can therefore update one small text texture independently.
@@ -8,16 +26,20 @@ public class TextLayer {
     private static var next_identity:int = 1
     private let current_identity:int
     private let current_revision:int
+    private var current_shaping_revision:int
     private var current_command:Command? = null
     private let canvas_width:int
     private let canvas_height:int
     private var retained:Rasterizer.TextImage? = null
     private var retained_scale:float = 1.0
+    private var retained_runs:VectorFont.GlyphRun[] = []
+    private var retained_runs_ready:bool = false
 
     module init(command:Command, width:int, height:int) {
         self.current_identity = TextLayer.next_identity
         TextLayer.next_identity++
         self.current_revision = 1
+        self.current_shaping_revision = 1
         self.current_command = command
         self.canvas_width = width
         self.canvas_height = height
@@ -32,6 +54,7 @@ public class TextLayer {
     ) {
         self.current_identity = identity
         self.current_revision = revision
+        self.current_shaping_revision = revision
         self.current_command = command
         self.canvas_width = width
         self.canvas_height = height
@@ -49,10 +72,65 @@ public class TextLayer {
 
     func id() int { return self.current_identity }
     func revision() int { return self.current_revision }
+    package func shaping_revision() int { return self.current_shaping_revision }
+
+    func glyph_runs() VectorFont.GlyphRun[] {
+        self.ensure_runs()
+        return self.retained_runs
+    }
+
+    func glyph_run() VectorFont.GlyphRun {
+        self.ensure_runs()
+        if self.retained_runs.count() != 1 {
+            panic("GFX.Canvas glyph_run requires one homogeneous text line; use glyph_runs for multiline text")
+        }
+        return self.retained_runs[0]
+    }
+
+    func vector_outlines() Result<TextGlyphPlacement[], TextVectorError> {
+        self.ensure_runs()
+        let baselines = self.run_baselines()
+        var result:TextGlyphPlacement[] = []
+        var run_index = 0
+        while run_index < self.retained_runs.count() {
+            var run = self.retained_runs[run_index]
+            match run.outlines() {
+                failure(error) => {
+                    return Result<TextGlyphPlacement[], TextVectorError>.failure(TextVectorError(
+                        detail:error.detail,
+                        cluster:null,
+                        face_identity:run.instance().face().identity()
+                    ))
+                }
+                success(glyphs) => {
+                    for glyph in glyphs {
+                        if glyph.outline == null {
+                            return Result<TextGlyphPlacement[], TextVectorError>.failure(TextVectorError(
+                                detail:"font glyph $(glyph.glyph_id) has no vector outline",
+                                cluster:glyph.cluster,
+                                face_identity:run.instance().face().identity()
+                            ))
+                        }
+                        result.append(TextGlyphPlacement(
+                            glyph:glyph,
+                            baseline:baselines[run_index]
+                        ))
+                    }
+                }
+            }
+            run_index++
+        }
+        return Result<TextGlyphPlacement[], TextVectorError>.success(result)
+    }
 
     module func matches(command:@Command, width:int, height:int) bool {
         if width != self.canvas_width || height != self.canvas_height { return false }
         if let current = self.current_command { return same_text(command, current) }
+        return false
+    }
+
+    module func same_shaping(command:@Command) bool {
+        if let current = self.current_command { return same_shaping_command(command, current) }
         return false
     }
 
@@ -77,6 +155,69 @@ public class TextLayer {
         if let content = self.retained { return content }
         panic("GFX.Canvas could not cache a retained text layer")
     }
+
+    module func ensure_runs() {
+        if self.retained_runs_ready { return }
+        if let command = self.current_command {
+            match command {
+                text(value) => {
+                    var instance = value.style.typeface().instance(
+                        value.style.size,
+                        text_weight_key(value.style.weight),
+                        value.style.variations
+                    )
+                    for line in StandardText.split(value.value, "\n") {
+                        if let advance = value.style.fixed_advance {
+                            self.retained_runs.append(Rasterizer.fixed_grid_run(
+                                instance,
+                                line,
+                                advance
+                            ))
+                        } else {
+                            self.retained_runs.append(shaped(instance, line))
+                        }
+                    }
+                }
+                else => {}
+            }
+        }
+        self.retained_runs_ready = true
+    }
+
+    module func reuse_shaping(previous:@TextLayer) {
+        self.current_shaping_revision = previous.current_shaping_revision
+    }
+
+    private func run_baselines() Math.Vec2[] {
+        var result:Math.Vec2[] = []
+        if let command = self.current_command {
+            match command {
+                text(value) => {
+                    let metrics = Rasterizer.measure_text(value.value, value.style)
+                    var origin_x = value.position.x
+                    if value.style.alignment == TextAlignment.center { origin_x -= metrics.width * 0.5 }
+                    if value.style.alignment == TextAlignment.end { origin_x -= metrics.width }
+                    var instance = value.style.typeface().instance(
+                        value.style.size,
+                        text_weight_key(value.style.weight),
+                        value.style.variations
+                    )
+                    let ascender = Math.ceil(instance.metrics().ascender) as int as float
+                    let line_height = Math.ceil(instance.metrics().line_height) as int as float
+                    var line = 0
+                    while line < self.retained_runs.count() {
+                        result.append(Math.Vec2(
+                            origin_x,
+                            value.position.y + line as float * line_height + ascender
+                        ))
+                        line++
+                    }
+                }
+                else => {}
+            }
+        }
+        return result
+    }
 }
 
 module func text_layer_unchanged(
@@ -94,13 +235,52 @@ module func updated_text_layer(
     height:int,
     previous:@TextLayer
 ) TextLayer {
-    return TextLayer.updated(
+    var result = TextLayer.updated(
         command,
         width,
         height,
         previous.id(),
         previous.revision() + 1
     )
+    if previous.same_shaping(command) {
+        result.reuse_shaping(previous)
+    }
+    return result
+}
+
+func shaped(instance:VectorFont.Instance, text:str) VectorFont.GlyphRun {
+    match instance.shape(text) {
+        failure(error) => { panic("GFX.Canvas could not shape retained text: " + error.detail) }
+        success(run) => { return run }
+    }
+}
+
+func text_weight_key(weight:TextWeight) int {
+    if weight == TextWeight.bold { return 1 }
+    return 0
+}
+
+func same_shaping_style(first:@TextStyle, second:@TextStyle) bool {
+    return first.size == second.size &&
+        first.weight == second.weight &&
+        first.font == second.font &&
+        first.fixed_advance == second.fixed_advance &&
+        same_text_variations(first.variations, second.variations)
+}
+
+func same_shaping_command(first:@Command, second:@Command) bool {
+    match first {
+        text(left) => {
+            match second {
+                text(right) => {
+                    return left.value == right.value && same_shaping_style(left.style, right.style)
+                }
+                else => {}
+            }
+        }
+        else => {}
+    }
+    return false
 }
 
 func same_text(first:@Command, second:@Command) bool {
@@ -110,7 +290,7 @@ func same_text(first:@Command, second:@Command) bool {
                 text(right) => {
                     return left.value == right.value &&
                         left.position == right.position &&
-                        left.style == right.style
+                        same_text_style(left.style, right.style)
                 }
                 else => {}
             }

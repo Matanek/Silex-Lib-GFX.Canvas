@@ -37,9 +37,11 @@ drawing.paint(func(painter:&Canvas.Painter) {
 let image = drawing.rasterize(128, 48)
 ```
 
-The package embeds a proportional default font and a monospace font available
-through `Canvas.Font.monospace()`. An application can also supply a path or
-encoded bytes. SDL3_ttf stays behind the Font API; no SDL handle is public.
+`GFX.Font` owns the distributed proportional and monospace faces;
+`Canvas.Font.default()` and `Canvas.Font.monospace()` remain compatibility
+facades. An application can also supply a path, encoded bytes, or wrap an
+already validated `GFX.Font.Face` with `Canvas.Font(face)`. Canvas consumes
+GFX.Font runs and hinted coverage without exposing a native handle.
 
 ## Reuse drawing intentions
 
@@ -103,13 +105,19 @@ rectangles, and straight lines compile to six-vertex analytic quads; the shader
 evaluates radius, width, orientation, and cap instead of retessellating rounded
 contours on the CPU.
 
-`Snapshot.text_layers()` gives every text command a stable identity and its own
-lazy coverage image. A renderer can therefore upload only the changed label.
-The coverage cache is bounded to 256 entries.
+`Snapshot.text_layers()` gives every text command a stable identity, its
+canonical `GlyphRun`, and its own lazy coverage image. `glyph_run()` returns a
+homogeneous line, `glyph_runs()` covers multiline text, and
+`vector_outlines()` preserves the same glyph IDs, clusters, and positions for
+a vector renderer. A renderer can therefore upload only the changed label.
+Canvas’s direct hinted-bitmap cache is bounded to 256 slots in addition to
+GFX.Font’s native budgets.
 
-`TextStyle.fixed_advance` places Unicode graphemes on an explicit horizontal
-grid while retaining one text command. This option suits terminal or editor
-rows; ordinary text keeps the font's natural advances.
+`TextStyle.fixed_advance` shapes the whole line, disables ligatures,
+contextual alternates, and kerning that would cross a cell, then places each
+Unicode cluster at an exact grid origin. Marks within one cluster stay in the
+same run; no UTF-8 byte is handled in isolation. This option suits terminal or
+editor rows; ordinary text keeps the font's natural advances.
 
 ## Paint a mutable surface
 
@@ -142,7 +150,8 @@ but owns no window, Application, renderer, or ECS world.
 
 ## Understand the native boundary
 
-GFX.Canvas owns SDL3_ttf and composes its provider with `GFX.SDL3` without
-redistributing SDL3. Pinned artifacts exist for macOS ARM64, Linux x64, Windows
-x64, and Windows ARM64; the latter remains a recognized experimental target in
-the Silex matrix.
+GFX.Canvas no longer owns a font engine or font archive. It depends on GFX.Font
+for faces, shaping, outlines, and hinted coverage. Its remaining SDL3 provider
+only serves existing Canvas surfaces and composes `GFX.SDL3` without
+redistributing SDL3. GFX.Font carries its own macOS ARM64, Linux x64, Windows
+x64, and Windows ARM64 artifact matrix.

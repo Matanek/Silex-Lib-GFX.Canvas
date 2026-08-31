@@ -11,10 +11,11 @@ use GFX.Canvas.Styles.TextStyle
 use GFX.Canvas.Styles.TextWeight
 use GFX.Canvas.Font.Font
 use GFX.Canvas.Font.TextRaster
+use GFX.Canvas.Font.CachedTextMetrics
+use GFX.Font as VectorFont
 use STD.Math
+use STD.Text as StandardText
 use STD.Text.Grapheme
-use STD.Text.UTF8
-use Interop.Boundary
 use Interop.C
 
 struct Polyline {
@@ -101,23 +102,19 @@ local func rasterize_text_bounds(
             text(value) => {
                 if value.value == "" { continue }
                 var style = value.style
-                style.size *= scale
-                if let advance = style.fixed_advance {
-                    style.fixed_advance = advance * scale
-                }
                 let metrics = measure_text(value.value, style)
                 var x = value.position.x * scale
-                if style.alignment == TextAlignment.center { x -= metrics.width * 0.5 }
-                if style.alignment == TextAlignment.end { x -= metrics.width }
+                if style.alignment == TextAlignment.center { x -= metrics.width * scale * 0.5 }
+                if style.alignment == TextAlignment.end { x -= metrics.width * scale }
                 let y = value.position.y * scale
                 if !found {
                     minimum = Math.Vec2(x, y)
-                    upper = Math.Vec2(x + metrics.width, y + metrics.height)
+                    upper = Math.Vec2(x + metrics.width * scale, y + metrics.height * scale)
                 } else {
                     minimum = Math.Vec2(Math.min(minimum.x, x), Math.min(minimum.y, y))
                     upper = Math.Vec2(
-                        Math.max(upper.x, x + metrics.width),
-                        Math.max(upper.y, y + metrics.height)
+                        Math.max(upper.x, x + metrics.width * scale),
+                        Math.max(upper.y, y + metrics.height * scale)
                     )
                 }
                 found = true
@@ -233,11 +230,6 @@ func rasterize_selected(
             }
             text(value) => {
                 if !include_text { continue }
-                var style = value.style
-                style.size *= text_scale
-                if let advance = style.fixed_advance {
-                    style.fixed_advance = advance * text_scale
-                }
                 draw_text(
                     address,
                     width,
@@ -247,7 +239,8 @@ func rasterize_selected(
                         value.position.x * text_scale - text_origin.x,
                         value.position.y * text_scale - text_origin.y
                     ),
-                    style
+                    value.style,
+                    text_scale
                 )
             }
         }
@@ -261,12 +254,11 @@ func measure_text(value:str, style:TextStyle) TextMetrics {
         return fixed_advance_metrics(
             value,
             advance,
-            style.size,
-            style.weight,
+            style,
             style.typeface()
         )
     }
-    return measure_font_text(value, style.size, style.weight, style.typeface())
+    return measure_font_text(value, style, style.typeface())
 }
 
 func draw_covered(
@@ -704,28 +696,35 @@ func near_polyline(point:Math.Vec2, line:@Polyline, radius:float) bool {
     return false
 }
 
-func measure_font_text(value:str, size:float, weight:TextWeight, font:Font) TextMetrics {
-    if let raster = font.cached_raster(value, size, font_weight_key(weight)) {
-        var lines = 1
-        for scalar in UTF8.scalars(value) { if scalar == 10 { lines++ } }
-        return TextMetrics(
-            width:raster.width as float,
-            height:raster.height as float,
-            lines:lines
-        )
-    }
-    let handle = cached_font(font, size, weight)
-    var measured_width:int32 = 0
-    var measured_height:int32 = 0
-    let compact = value
-    let measured = ttf_get_string_size(
-        C.pointer_bits(handle), C.pointer(compact), C.byte_count(compact) as C.Size,
-        C.mutable_pointer(measured_width), C.mutable_pointer(measured_height)
+func measure_font_text(value:str, style:TextStyle, font:Font) TextMetrics {
+    var instance = font.instance(
+        style.size,
+        font_weight_key(style.weight),
+        style.variations
     )
-    if measured == 0 { panic("GFX.Canvas could not measure text: " + font_error()) }
-    var lines = 1
-    for scalar in UTF8.scalars(value) { if scalar == 10 { lines++ } }
-    return TextMetrics(width:measured_width as float, height:measured_height as float, lines:lines)
+    let cache_key = instance.identity() + "|metrics|" + value
+    if cached = font.cached_metrics(cache_key) {
+        return TextMetrics(width:cached.width, height:cached.height, lines:cached.lines)
+    }
+    let lines = StandardText.split(value, "\n")
+    var width = 0.0
+    for line in lines {
+        var run = shaped(instance, line)
+        var line_width = Math.ceil(run.metrics().advance.x) as int as float
+        if instance.synthesis().embolden { line_width += 1.0 }
+        width = Math.max(width, line_width)
+    }
+    let metrics = TextMetrics(
+        width:width,
+        height:Math.ceil(instance.metrics().line_height) as int as float * lines.count() as float,
+        lines:lines.count()
+    )
+    font.retain_metrics(cache_key, CachedTextMetrics(
+        width:metrics.width,
+        height:metrics.height,
+        lines:metrics.lines
+    ))
+    return metrics
 }
 
 func draw_font_text(
@@ -735,7 +734,8 @@ func draw_font_text(
     value:str,
     position:Math.Vec2,
     style:TextStyle,
-    font:Font
+    font:Font,
+    density:float
 ) {
     if value == "" { return }
     if let advance = style.fixed_advance {
@@ -747,23 +747,38 @@ func draw_font_text(
             position,
             style,
             font,
-            advance
+            advance,
+            density
         )
         return
     }
-    let raster = cached_text_raster(value, style.size, style.weight, font)
+    let metrics = measure_font_text(value, style, font)
     var origin_x = position.x
-    if style.alignment == TextAlignment.center { origin_x -= raster.width as float * 0.5 }
-    if style.alignment == TextAlignment.end { origin_x -= raster.width as float }
-    draw_text_raster(
-        address,
-        width,
-        height,
-        raster,
-        Math.floor(origin_x) as int,
-        Math.floor(position.y) as int,
-        style.color
+    if style.alignment == TextAlignment.center { origin_x -= metrics.width * density * 0.5 }
+    if style.alignment == TextAlignment.end { origin_x -= metrics.width * density }
+    var instance = font.instance(
+        style.size,
+        font_weight_key(style.weight),
+        style.variations
     )
+    let line_height = Math.ceil(instance.metrics().line_height) as int as float * density
+    let lines = StandardText.split(value, "\n")
+    var line_index = 0
+    while line_index < lines.count() {
+        var run = shaped(instance, lines[line_index])
+        draw_glyph_run(
+            address,
+            width,
+            height,
+            run,
+            font,
+            origin_x,
+            position.y + line_index as float * line_height,
+            style.color,
+            density
+        )
+        line_index++
+    }
 }
 
 func draw_text_raster(
@@ -784,11 +799,11 @@ func draw_text_raster(
     )
     var source_y = 0
     while source_y < raster.height {
-        let target_y = destination_y + source_y
+        let target_y = destination_y + raster.offset_y + source_y
         if target_y >= 0 && target_y < height {
             var source_x = 0
             while source_x < raster.width {
-                let target_x = destination_x + source_x
+                let target_x = destination_x + raster.offset_x + source_x
                 if target_x >= 0 && target_x < width {
                     let alpha = C.load<uint8>(
                         source,
@@ -813,24 +828,29 @@ func draw_text_raster(
 func fixed_advance_metrics(
     value:str,
     advance:float,
-    size:float,
-    weight:TextWeight,
+    style:TextStyle,
     font:Font
 ) TextMetrics {
-    let natural = measure_font_text(value, size, weight, font)
+    var instance = font.instance(
+        style.size,
+        font_weight_key(style.weight),
+        style.variations
+    )
     var columns = 0
     var maximum_columns = 0
+    var lines = 1
     for cluster in Grapheme.split(value) {
         if cluster == "\n" {
             maximum_columns = max_int(maximum_columns, columns)
             columns = 0
+            lines++
         } else { columns++ }
     }
     maximum_columns = max_int(maximum_columns, columns)
     return TextMetrics(
         width:maximum_columns as float * advance,
-        height:natural.height,
-        lines:natural.lines
+        height:Math.ceil(instance.metrics().line_height) as int as float * lines as float,
+        lines:lines
     )
 }
 
@@ -842,38 +862,40 @@ func draw_fixed_advance_text(
     position:Math.Vec2,
     style:TextStyle,
     font:Font,
-    advance:float
+    advance:float,
+    density:float
 ) {
     let metrics = fixed_advance_metrics(
         value,
         advance,
-        style.size,
-        style.weight,
+        style,
         font
     )
     var origin_x = position.x
-    if style.alignment == TextAlignment.center { origin_x -= metrics.width * 0.5 }
-    if style.alignment == TextAlignment.end { origin_x -= metrics.width }
-    let line_height = measure_font_text("M", style.size, style.weight, font).height
-    var column = 0
-    var line = 0
-    for cluster in Grapheme.split(value) {
-        if cluster == "\n" {
-            column = 0
-            line++
-        } else {
-            let raster = cached_text_raster(cluster, style.size, style.weight, font)
-            draw_text_raster(
-                address,
-                width,
-                height,
-                raster,
-                Math.floor(origin_x + column as float * advance) as int,
-                Math.floor(position.y + line as float * line_height) as int,
-                style.color
-            )
-            column++
-        }
+    if style.alignment == TextAlignment.center { origin_x -= metrics.width * density * 0.5 }
+    if style.alignment == TextAlignment.end { origin_x -= metrics.width * density }
+    var instance = font.instance(
+        style.size,
+        font_weight_key(style.weight),
+        style.variations
+    )
+    let line_height = Math.ceil(instance.metrics().line_height) as int as float * density
+    let lines = StandardText.split(value, "\n")
+    var line_index = 0
+    while line_index < lines.count() {
+        var run = fixed_grid_run(instance, lines[line_index], advance)
+        draw_glyph_run(
+            address,
+            width,
+            height,
+            run,
+            font,
+            origin_x,
+            position.y + line_index as float * line_height,
+            style.color,
+            density:density
+        )
+        line_index++
     }
 }
 
@@ -882,87 +904,123 @@ func max_int(first:int, second:int) int {
     return second
 }
 
-func cached_text_raster(
+func shaped(
+    instance:VectorFont.Instance,
     value:str,
-    size:float,
-    weight:TextWeight,
-    font:Font
-) TextRaster {
-    let key = font_weight_key(weight)
-    if let cached = font.cached_raster(value, size, key) { return cached }
-    let handle = cached_font(font, size, weight)
-    let compact = value
-    let rendered = C.address_bits(ttf_render_text_blended(
-        C.pointer_bits(handle), C.pointer(compact), C.byte_count(compact) as C.Size,
-        packed_color(Color.white())
-    ))
-    if rendered == 0 as uint { panic("GFX.Canvas could not render text: " + font_error()) }
-
-    let converted = C.address_bits(sdl_convert_surface(C.pointer_bits(rendered), 0x1676_2004 as uint32))
-    sdl_destroy_surface(C.pointer_bits(rendered))
-    if converted == 0 as uint { panic("GFX.Canvas could not convert text pixels: " + font_error()) }
-    if sdl_lock_surface(C.pointer_bits(converted)) == 0 {
-        let detail = font_error()
-        sdl_destroy_surface(C.pointer_bits(converted))
-        panic("GFX.Canvas could not access text pixels: " + detail)
+    options:VectorFont.ShapeOptions = VectorFont.ShapeOptions()
+) VectorFont.GlyphRun {
+    match instance.shape(value, options) {
+        failure(error) => { panic("GFX.Canvas could not shape text: " + error.detail) }
+        success(run) => { return run }
     }
+}
 
-    let source_width = C.load<int32>(converted, 8 as uint) as int
-    let source_height = C.load<int32>(converted, 12 as uint) as int
-    let source_pitch = C.load<int32>(converted, 16 as uint) as int
-    let source = C.load<uint>(converted, 24 as uint)
-    var alpha = packed_storage(source_width * source_height)
-    let alpha_address = C.address_bits(C.mutable_string_pointer(alpha))
-    var source_y = 0
-    while source_y < source_height {
-        var source_x = 0
-        while source_x < source_width {
-            let source_offset = source_y * source_pitch + source_x * 4 + 3
-            let target_offset = source_y * source_width + source_x
-            let stored = C.store<uint8>(
-                alpha_address,
-                target_offset as uint,
-                C.load<uint8>(source, source_offset as uint)
+func fixed_grid_run(
+    instance:VectorFont.Instance,
+    value:str,
+    advance:float
+) VectorFont.GlyphRun {
+    var starts:int[] = []
+    var origins:VectorFont.Position[] = []
+    var byte_offset = 0
+    var column = 0
+    for cluster in Grapheme.split(value) {
+        starts.append(byte_offset)
+        origins.append(VectorFont.Position(
+            x:column as float64 * advance as float64,
+            y:0.0
+        ))
+        byte_offset += C.byte_count(cluster) as int
+        column++
+    }
+    var run = shaped(instance, value, VectorFont.ShapeOptions(features:[
+        VectorFont.Feature("liga", 0),
+        VectorFont.Feature("clig", 0),
+        VectorFont.Feature("calt", 0),
+        VectorFont.Feature("kern", 0)
+    ]))
+    match run.place_clusters(
+        starts,
+        origins,
+        VectorFont.Position(x:column as float64 * advance as float64, y:0.0)
+    ) {
+        failure(error) => { panic("GFX.Canvas could not place fixed-grid text: " + error.detail) }
+        success(placed) => { return placed }
+    }
+}
+
+func draw_glyph_run(
+    address:uint,
+    width:int,
+    height:int,
+    run:VectorFont.GlyphRun,
+    font:Font,
+    position_x:float,
+    position_y:float,
+    color:Color,
+    density:float = 1.0
+) {
+    var retained_run = run
+    var instance = retained_run.instance()
+    let baseline = Math.ceil(instance.metrics().ascender * density as float64) as int
+    for glyph in retained_run.glyphs() {
+        let raster = rasterized_glyph(instance, glyph.id, font, density)
+        if raster.width == 0 || raster.height == 0 { continue }
+        draw_text_raster(
+            address,
+            width,
+            height,
+            raster,
+            Math.floor(position_x) as int + Math.round(glyph.origin_x * density as float64) as int,
+            Math.floor(position_y) as int + baseline -
+                Math.round(glyph.origin_y * density as float64) as int,
+            color
+        )
+        if instance.synthesis().embolden {
+            draw_text_raster(
+                address,
+                width,
+                height,
+                raster,
+                Math.floor(position_x) as int + Math.round(glyph.origin_x * density as float64) as int +
+                    Math.max(1.0, Math.round(density)) as int,
+                Math.floor(position_y) as int + baseline -
+                    Math.round(glyph.origin_y * density as float64) as int,
+                color
             )
-            source_x++
         }
-        source_y++
     }
-    sdl_unlock_surface(C.pointer_bits(converted))
-    sdl_destroy_surface(C.pointer_bits(converted))
-    let raster = TextRaster(width:source_width, height:source_height, alpha:alpha)
-    font.retain_raster(value, size, key, raster)
-    return raster
 }
 
-func open_uncached_font(font:Font, size:float, weight:TextWeight) uint {
-    if ttf_was_init() == 0 && ttf_init() == 0 {
-        panic("GFX.Canvas could not initialize text rendering: " + font_error())
+func rasterized_glyph(
+    instance:VectorFont.Instance,
+    glyph_id:uint32,
+    font:Font,
+    density:float
+) TextRaster {
+    var retained_instance = instance
+    if cached = font.cached_raster(retained_instance, glyph_id, density) { return cached }
+    match retained_instance.rasterize_glyph(glyph_id, VectorFont.GlyphRasterOptions(
+        density:density as float64,
+        hinting:VectorFont.Hinting.normal(),
+        antialiasing:VectorFont.Antialiasing.grayscale()
+    )) {
+        failure(error) => { panic("GFX.Canvas could not rasterize glyph $(glyph_id): " + error.detail) }
+        success(coverage) => {
+            var raster = TextRaster(width:0, height:0, alpha:"", offset_x:0, offset_y:0)
+            if value = coverage {
+                raster = TextRaster(
+                    width:value.width,
+                    height:value.height,
+                    alpha:value.packed_alpha(),
+                    offset_x:value.left,
+                    offset_y:-value.top
+                )
+            }
+            font.retain_raster(retained_instance, glyph_id, density, raster)
+            return raster
+        }
     }
-    if let path = font.path() {
-        let handle = C.address_bits(ttf_open_font(C.terminated_pointer(path), size as float32))
-        if handle == 0 as uint { panic("GFX.Canvas could not open font '" + path + "': " + font_error()) }
-        configure_font(handle, weight)
-        return handle
-    }
-    let stream = C.address_bits(sdl_io_from_const_memory(
-        C.pointer(font.packed_data()), font.byte_count() as C.Size
-    ))
-    if stream == 0 as uint { panic("GFX.Canvas could not open font data: " + font_error()) }
-    let handle = C.address_bits(ttf_open_font_io(C.pointer_bits(stream), 1, size as float32))
-    if handle == 0 as uint { panic("GFX.Canvas could not open font: " + font_error()) }
-    configure_font(handle, weight)
-    return handle
-}
-
-func cached_font(font:Font, size:float, weight:TextWeight) uint {
-    let key = font_weight_key(weight)
-    if let handle = font.cached_face(size, key) { return handle }
-    let handle = open_uncached_font(font, size, weight)
-    if let evicted = font.retain_face(size, key, handle) {
-        ttf_close_font(C.pointer_bits(evicted))
-    }
-    return handle
 }
 
 func font_weight_key(weight:TextWeight) int {
@@ -970,36 +1028,16 @@ func font_weight_key(weight:TextWeight) int {
     return 0
 }
 
-func configure_font(handle:uint, weight:TextWeight) {
-    ttf_set_font_hinting(C.pointer_bits(handle), light_subpixel_hinting())
-    var style = 0 as uint32
-    if weight == TextWeight.bold { style = 1 as uint32 }
-    ttf_set_font_style(C.pointer_bits(handle), style)
-}
-
-func packed_color(value:Color) uint32 {
-    return color_channel(value.r) as uint32 +
-        (color_channel(value.g) as uint32 << 8) +
-        (color_channel(value.b) as uint32 << 16) +
-        (color_channel(value.a) as uint32 << 24)
-}
-
-func font_error() str {
-    let address = C.address_bits(sdl_get_error())
-    if address == 0 as uint { return "unknown SDL_ttf error" }
-    var bytes:uint8[] = []
-    var index = 0
-    while index < 4096 {
-        let byte = C.load<uint8>(address, index as uint)
-        if byte == 0 { return C.string(@bytes[0:bytes.count()]) }
-        bytes.append(byte)
-        index++
-    }
-    return "invalid SDL_ttf error"
-}
-
-func draw_text(address:uint, width:int, height:int, value:str, position:Math.Vec2, style:TextStyle) {
-    draw_font_text(address, width, height, value, position, style, style.typeface())
+func draw_text(
+    address:uint,
+    width:int,
+    height:int,
+    value:str,
+    position:Math.Vec2,
+    style:TextStyle,
+    density:float = 1.0
+) {
+    draw_font_text(address, width, height, value, position, style, style.typeface(), density)
 }
 
 func blend(address:uint, offset:int, color:Color, coverage:float) {
@@ -1028,23 +1066,3 @@ func write_byte(address:uint, offset:int, value:uint8) {
 func color_channel(value:float) uint8 {
     return Math.round(Math.clamp(value, 0.0, 1.0) * 255.0) as uint8
 }
-
-let ttf_init = C.function<func() int32>(library:Boundary.SDL3_ttf, name:"TTF_Init")
-let ttf_was_init = C.function<func() int32>(library:Boundary.SDL3_ttf, name:"TTF_WasInit")
-let ttf_open_font = C.function<func(C.Pointer<uint8>, float32) C.Pointer<uint8> >(library:Boundary.SDL3_ttf, name:"TTF_OpenFont")
-let ttf_open_font_io = C.function<func(C.Pointer<uint8>, int32, float32) C.Pointer<uint8> >(library:Boundary.SDL3_ttf, name:"TTF_OpenFontIO")
-let ttf_set_font_hinting = C.function<func(C.Pointer<uint8>, int32) void>(library:Boundary.SDL3_ttf, name:"TTF_SetFontHinting")
-
-// SDL_ttf's TTF_HINTING_LIGHT_SUBPIXEL keeps advances proportional while
-// retaining light grid fitting for glyph edges.
-func light_subpixel_hinting() int32 { return 4 as int32 }
-let ttf_close_font = C.function<func(C.Pointer<uint8>) void>(library:Boundary.SDL3_ttf, name:"TTF_CloseFont")
-let ttf_set_font_style = C.function<func(C.Pointer<uint8>, uint32) void>(library:Boundary.SDL3_ttf, name:"TTF_SetFontStyle")
-let ttf_get_string_size = C.function<func(C.Pointer<uint8>, C.Pointer<uint8>, C.Size, C.MutablePointer<int32>, C.MutablePointer<int32>) int32>(library:Boundary.SDL3_ttf, name:"TTF_GetStringSize")
-let ttf_render_text_blended = C.function<func(C.Pointer<uint8>, C.Pointer<uint8>, C.Size, uint32) C.Pointer<uint8> >(library:Boundary.SDL3_ttf, name:"TTF_RenderText_Blended")
-let sdl_io_from_const_memory = C.function<func(C.Pointer<uint8>, C.Size) C.Pointer<uint8> >(library:Boundary.SDL3, name:"SDL_IOFromConstMem")
-let sdl_convert_surface = C.function<func(C.Pointer<uint8>, uint32) C.Pointer<uint8> >(library:Boundary.SDL3, name:"SDL_ConvertSurface")
-let sdl_lock_surface = C.function<func(C.Pointer<uint8>) int32>(library:Boundary.SDL3, name:"SDL_LockSurface")
-let sdl_unlock_surface = C.function<func(C.Pointer<uint8>) void>(library:Boundary.SDL3, name:"SDL_UnlockSurface")
-let sdl_destroy_surface = C.function<func(C.Pointer<uint8>) void>(library:Boundary.SDL3, name:"SDL_DestroySurface")
-let sdl_get_error = C.function<func() C.Pointer<uint8> >(library:Boundary.SDL3, name:"SDL_GetError")
