@@ -116,6 +116,11 @@ un renderer vectoriel. Un renderer peut donc transférer seulement le libellé
 modifié. Le cache Canvas direct de bitmaps hintés est borné à 256 emplacements,
 en plus des budgets natifs de GFX.Font.
 
+`TextLayer.shaping_revision()` ne change que lorsque le texte, la face, la
+taille, les variations ou le placement typographique changent. Un renderer
+retenu peut donc lire `color()` et mettre à jour une instance de couleur sans
+redécomposer ni retesseller les contours.
+
 `TextStyle.fixed_advance` façonne la ligne entière, désactive les ligatures,
 alternatives contextuelles et kernings qui traverseraient une cellule, puis
 place chaque cluster Unicode sur une origine de grille exacte. Les marks d’un

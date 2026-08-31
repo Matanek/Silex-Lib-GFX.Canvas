@@ -113,6 +113,11 @@ a vector renderer. A renderer can therefore upload only the changed label.
 Canvas’s direct hinted-bitmap cache is bounded to 256 slots in addition to
 GFX.Font’s native budgets.
 
+`TextLayer.shaping_revision()` changes only when text, face, size, variations,
+or typographic placement changes. A retained renderer can therefore read
+`color()` and update a color instance without decomposing or tessellating the
+outlines again.
+
 `TextStyle.fixed_advance` shapes the whole line, disables ligatures,
 contextual alternates, and kerning that would cross a cell, then places each
 Unicode cluster at an exact grid origin. Marks within one cluster stay in the

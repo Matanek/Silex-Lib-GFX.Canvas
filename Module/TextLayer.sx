@@ -5,6 +5,7 @@ use GFX.Canvas.Styles.TextStyle
 use GFX.Canvas.Styles.TextWeight
 use GFX.Canvas.Styles.same_text_style
 use GFX.Canvas.Styles.same_text_variations
+use GFX.Color
 use GFX.Font as VectorFont
 use STD.Math
 use STD.Text as StandardText
@@ -72,7 +73,19 @@ public class TextLayer {
 
     func id() int { return self.current_identity }
     func revision() int { return self.current_revision }
-    package func shaping_revision() int { return self.current_shaping_revision }
+    // Alternative retained renderers use this revision to keep geometry when
+    // only placement or color changes.
+    func shaping_revision() int { return self.current_shaping_revision }
+
+    func color() Color {
+        if let command = self.current_command {
+            match command {
+                text(value) => { return value.style.color }
+                else => {}
+            }
+        }
+        return Color.transparent()
+    }
 
     func glyph_runs() VectorFont.GlyphRun[] {
         self.ensure_runs()
