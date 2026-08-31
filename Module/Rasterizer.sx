@@ -1050,7 +1050,7 @@ func draw_glyph_run(
     }
 }
 
-func rasterized_glyph(
+module func rasterized_glyph(
     instance:VectorFont.Instance,
     glyph_id:uint32,
     font:Font,

@@ -15,6 +15,14 @@ public struct TextGlyphPlacement {
     let baseline:Math.Vec2
 }
 
+// Renderer-neutral shaped coverage run. Rasterization stays lazy so a renderer
+// can consult its own glyph atlas before asking GFX.Font for hinted coverage.
+public struct TextCoverageRun {
+    var glyph_run:VectorFont.GlyphRun
+    let origin:Math.Vec2
+    let density:float
+}
+
 public struct TextVectorError {
     let detail:str
     let cluster:VectorFont.Cluster?
@@ -134,6 +142,48 @@ public class TextLayer {
             run_index++
         }
         return Result<TextGlyphPlacement[], TextVectorError>.success(result)
+    }
+
+    func coverage_runs(density:float = 1.0) TextCoverageRun[] {
+        if density <= 0.0 { panic("GFX.Canvas text coverage density must be positive") }
+        self.ensure_runs()
+        var result:TextCoverageRun[] = []
+        if let command = self.current_command {
+            match command {
+                text(value) => {
+                    let metrics = Rasterizer.measure_text(value.value, value.style)
+                    var origin_x = value.position.x * density
+                    if value.style.alignment == TextAlignment.center {
+                        origin_x -= metrics.width * density * 0.5
+                    }
+                    if value.style.alignment == TextAlignment.end {
+                        origin_x -= metrics.width * density
+                    }
+                    var instance = value.style.typeface().instance(
+                        value.style.size,
+                        text_weight_key(value.style.weight),
+                        value.style.variations
+                    )
+                    let baseline = Math.ceil(instance.metrics().ascender * density as float64) as int
+                    let line_height = Math.ceil(instance.metrics().line_height) as int as float * density
+                    var line_index = 0
+                    while line_index < self.retained_runs.count() {
+                        result.append(TextCoverageRun(
+                            glyph_run:self.retained_runs[line_index],
+                            origin:Math.Vec2(
+                                Math.floor(origin_x) / density,
+                                (Math.floor(value.position.y * density +
+                                    line_index as float * line_height) + baseline as float) / density
+                            ),
+                            density:density
+                        ))
+                        line_index++
+                    }
+                }
+                else => {}
+            }
+        }
+        return result
     }
 
     module func matches(command:@Command, width:int, height:int) bool {

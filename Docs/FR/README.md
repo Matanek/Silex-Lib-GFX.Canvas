@@ -112,8 +112,11 @@ shader au lieu de tesseller à nouveau les contours ronds sur le CPU.
 son `GlyphRun` canonique et sa propre image de couverture paresseuse.
 `glyph_run()` retourne la ligne homogène ; `glyph_runs()` couvre le multiligne
 et `vector_outlines()` conserve les mêmes glyph IDs, clusters et positions pour
-un renderer vectoriel. Un renderer peut donc transférer seulement le libellé
-modifié. Le cache Canvas direct de bitmaps hintés est borné à 256 emplacements,
+un renderer vectoriel. `coverage_runs(density)` expose les mêmes runs avec leur
+origine physique arrondie, sans rastériser : un renderer peut consulter son
+atlas avant de demander la couverture d'un glyphe absent. Un renderer peut donc
+transférer seulement le libellé modifié. Le cache Canvas direct de bitmaps
+hintés est borné à 2 048 emplacements et 16 Mio,
 en plus des budgets natifs de GFX.Font.
 
 `TextLayer.shaping_revision()` ne change que lorsque le texte, la face, la

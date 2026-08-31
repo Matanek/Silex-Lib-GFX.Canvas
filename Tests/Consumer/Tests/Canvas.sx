@@ -133,6 +133,12 @@ test "retain canonical shaped runs and expose vector outlines" {
             assert(placements[0].baseline.y > 3.0)
         }
     }
+    var coverage_runs = layer.coverage_runs(2.0)
+    assert(coverage_runs.count() == 1)
+    assert(coverage_runs[0].density == 2.0)
+    assert(coverage_runs[0].origin.y > 3.0)
+    var coverage_run = coverage_runs[0].glyph_run
+    assert(coverage_run.glyph_count() == run.glyph_count())
 
     var grid = Canvas()
     grid.paint(func(painter:&Canvas.Painter) {

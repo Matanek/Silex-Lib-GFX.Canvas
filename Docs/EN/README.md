@@ -109,8 +109,11 @@ contours on the CPU.
 canonical `GlyphRun`, and its own lazy coverage image. `glyph_run()` returns a
 homogeneous line, `glyph_runs()` covers multiline text, and
 `vector_outlines()` preserves the same glyph IDs, clusters, and positions for
-a vector renderer. A renderer can therefore upload only the changed label.
-Canvas’s direct hinted-bitmap cache is bounded to 256 slots in addition to
+a vector renderer. `coverage_runs(density)` exposes the same runs with their
+rounded physical origin without rasterizing, so a renderer can consult its
+atlas before requesting a missing glyph's coverage. A renderer can therefore
+upload only the changed label. Canvas’s direct hinted-bitmap cache is bounded
+to 2,048 slots and 16 MiB in addition to
 GFX.Font’s native budgets.
 
 `TextLayer.shaping_revision()` changes only when text, face, size, variations,
