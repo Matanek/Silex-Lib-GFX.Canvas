@@ -1,5 +1,6 @@
 use GFX.Font as VectorFont
 use STD.Math
+use Interop.C
 
 module struct TextRaster {
     let width:int
@@ -27,7 +28,9 @@ public class Font {
     private var raster_glyph_ids:uint32[]
     private var raster_densities:float[]
     private var raster_values:TextRaster[]
+    private var raster_byte_counts:int[]
     private var raster_slots:int[]
+    private var raster_bytes:int
     private var metric_keys:str[]
     private var metric_values:CachedTextMetrics[]
     private var next_metric_key:int
@@ -42,7 +45,9 @@ public class Font {
         self.raster_glyph_ids = []
         self.raster_densities = []
         self.raster_values = []
+        self.raster_byte_counts = []
         self.raster_slots = empty_raster_slots()
+        self.raster_bytes = 0
         self.metric_keys = []
         self.metric_values = []
         self.next_metric_key = 0
@@ -59,7 +64,9 @@ public class Font {
         self.raster_glyph_ids = []
         self.raster_densities = []
         self.raster_values = []
+        self.raster_byte_counts = []
         self.raster_slots = empty_raster_slots()
+        self.raster_bytes = 0
         self.metric_keys = []
         self.metric_values = []
         self.next_metric_key = 0
@@ -75,7 +82,9 @@ public class Font {
         self.raster_glyph_ids = []
         self.raster_densities = []
         self.raster_values = []
+        self.raster_byte_counts = []
         self.raster_slots = empty_raster_slots()
+        self.raster_bytes = 0
         self.metric_keys = []
         self.metric_values = []
         self.next_metric_key = 0
@@ -143,6 +152,7 @@ public class Font {
 
     package func cached_face_count() int { return self.instance_values.count() }
     package func cached_raster_count() int { return self.raster_values.count() }
+    package func cached_raster_byte_count() int { return self.raster_bytes }
 
     module func cached_metrics(key:str) CachedTextMetrics? {
         var index = 0
@@ -187,6 +197,8 @@ public class Font {
         density:float,
         raster:TextRaster
     ) {
+        let byte_count = C.byte_count(raster.alpha) as int + 128
+        if byte_count > 16_777_216 { return }
         let slot = self.raster_slot(instance, glyph_id, density)
         let index = self.raster_slots[slot]
         if index >= 0 {
@@ -196,17 +208,20 @@ public class Font {
             {
                 return
             }
-            self.raster_instances.replace(index, instance)
-            self.raster_glyph_ids.replace(index, glyph_id)
-            self.raster_densities.replace(index, density)
-            self.raster_values.replace(index, raster)
-            return
+            self.discard_raster(index)
+        }
+        while self.raster_values.count() >= self.raster_slots.count() ||
+            self.raster_bytes + byte_count > 16_777_216
+        {
+            self.discard_raster(0)
         }
         let retained_index = self.raster_values.count()
         self.raster_instances.append(instance)
         self.raster_glyph_ids.append(glyph_id)
         self.raster_densities.append(density)
         self.raster_values.append(raster)
+        self.raster_byte_counts.append(byte_count)
+        self.raster_bytes += byte_count
         self.raster_slots.replace(slot, retained_index)
     }
 
@@ -224,7 +239,7 @@ public class Font {
         let glyph_key = glyph_id as uint
         let density_key = Math.round(density * 64.0) as uint
         return ((glyph_key * 131 as uint + density_key * 17 as uint +
-            instance_index as uint * 53 as uint) % 256 as uint) as int
+            instance_index as uint * 53 as uint) % self.raster_slots.count() as uint) as int
     }
 
     private func clear_raster_cache() {
@@ -232,7 +247,40 @@ public class Font {
         self.raster_glyph_ids = []
         self.raster_densities = []
         self.raster_values = []
+        self.raster_byte_counts = []
         self.raster_slots = empty_raster_slots()
+        self.raster_bytes = 0
+    }
+
+    private func discard_raster(index:int) {
+        let slot = self.raster_slot(
+            self.raster_instances[index],
+            self.raster_glyph_ids[index],
+            self.raster_densities[index]
+        )
+        if self.raster_slots[slot] == index { self.raster_slots.replace(slot, -1) }
+        self.raster_bytes -= self.raster_byte_counts[index]
+        let last = self.raster_values.count() - 1
+        if index != last {
+            self.raster_instances.replace(index, self.raster_instances[last])
+            self.raster_glyph_ids.replace(index, self.raster_glyph_ids[last])
+            self.raster_densities.replace(index, self.raster_densities[last])
+            self.raster_values.replace(index, self.raster_values[last])
+            self.raster_byte_counts.replace(index, self.raster_byte_counts[last])
+            let moved_slot = self.raster_slot(
+                self.raster_instances[index],
+                self.raster_glyph_ids[index],
+                self.raster_densities[index]
+            )
+            if self.raster_slots[moved_slot] == last {
+                self.raster_slots.replace(moved_slot, index)
+            }
+        }
+        self.raster_instances.take_last()
+        self.raster_glyph_ids.take_last()
+        self.raster_densities.take_last()
+        self.raster_values.take_last()
+        self.raster_byte_counts.take_last()
     }
 
     private func discard_oldest_instance() {
@@ -303,6 +351,6 @@ func weight_axis(face:VectorFont.Face) VectorFont.Axis? {
 
 func empty_raster_slots() int[] {
     var result:int[] = []
-    while result.count() < 256 { result.append(-1) }
+    while result.count() < 2_048 { result.append(-1) }
     return result
 }

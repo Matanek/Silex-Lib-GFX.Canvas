@@ -149,7 +149,8 @@ test "reuse cached text coverage across colors and drawings" {
     let cyan = first.rasterize(120, 24)
     let retained_glyphs = font.cached_raster_count()
     assert(retained_glyphs > 0)
-    assert(retained_glyphs <= 256)
+    assert(retained_glyphs <= 2_048)
+    assert(font.cached_raster_byte_count() <= 16_777_216)
 
     var second = Canvas()
     second.paint(func(painter:&Canvas.Painter) {
@@ -188,7 +189,8 @@ test "share and bound cached glyph coverage under label churn" {
         index++
     }
     assert(font.cached_raster_count() > 0)
-    assert(font.cached_raster_count() <= 256)
+    assert(font.cached_raster_count() <= 2_048)
+    assert(font.cached_raster_byte_count() <= 16_777_216)
 }
 
 test "rasterize retained text at the display pixel density" {
