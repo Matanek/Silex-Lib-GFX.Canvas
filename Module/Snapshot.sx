@@ -3,6 +3,8 @@ use GFX.Canvas.Geometry.Mesh
 use GFX.Canvas.Command
 use GFX.Canvas.Rasterizer
 use GFX.Canvas.TextLayer.TextLayer
+use GFX.Canvas.TextLayer.repositioned_text_layer
+use GFX.Canvas.TextLayer.text_layer_repositionable
 use GFX.Canvas.TextLayer.text_layer_unchanged
 use GFX.Canvas.TextLayer.updated_text_layer
 use GFX.Canvas.Styles.same_text_style
@@ -128,9 +130,11 @@ public class Snapshot {
 
     private func retain_text_layers(previous:@Snapshot) {
         var retained:TextLayer[] = []
+        var used:bool[] = []
+        for layer in previous.retained_text_layers { used.append(false) }
         var index = 0
         while index < self.text_commands.count() {
-            if index < previous.retained_text_layers.count() {
+            if index < previous.retained_text_layers.count() && !used[index] {
                 if text_layer_unchanged(
                     self.text_commands[index],
                     self.text_width,
@@ -138,14 +142,41 @@ public class Snapshot {
                     previous.retained_text_layers[index]
                 ) {
                     retained.append(previous.retained_text_layers[index])
-                } else {
-                    retained.append(updated_text_layer(
-                        self.text_commands[index],
-                        self.text_width,
-                        self.text_height,
-                        previous.retained_text_layers[index]
-                    ))
+                    used[index] = true
+                    index++
+                    continue
                 }
+            }
+            var moved = -1
+            var previous_index = 0
+            while previous_index < previous.retained_text_layers.count() {
+                if !used[previous_index] && text_layer_repositionable(
+                    self.text_commands[index],
+                    self.text_width,
+                    self.text_height,
+                    previous.retained_text_layers[previous_index]
+                ) {
+                    moved = previous_index
+                    break
+                }
+                previous_index++
+            }
+            if moved >= 0 {
+                retained.append(repositioned_text_layer(
+                    self.text_commands[index],
+                    self.text_width,
+                    self.text_height,
+                    previous.retained_text_layers[moved]
+                ))
+                used[moved] = true
+            } else if index < previous.retained_text_layers.count() && !used[index] {
+                retained.append(updated_text_layer(
+                    self.text_commands[index],
+                    self.text_width,
+                    self.text_height,
+                    previous.retained_text_layers[index]
+                ))
+                used[index] = true
             } else {
                 retained.append(TextLayer(
                     self.text_commands[index],

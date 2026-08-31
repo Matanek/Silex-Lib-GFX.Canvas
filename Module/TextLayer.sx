@@ -147,6 +147,30 @@ public class TextLayer {
         return false
     }
 
+    module func can_reposition(command:@Command, width:int, height:int) bool {
+        if width != self.canvas_width || height != self.canvas_height || self.retained == null {
+            return false
+        }
+        if let current = self.current_command {
+            if !same_raster_content(command, current) { return false }
+            if let retained = self.retained {
+                let delta = text_position(command).subtract(text_position(current))
+                return translated_axis_fits(
+                    retained.origin.x,
+                    retained.size.x,
+                    delta.x,
+                    width
+                ) && translated_axis_fits(
+                    retained.origin.y,
+                    retained.size.y,
+                    delta.y,
+                    height
+                )
+            }
+        }
+        return false
+    }
+
     func text_layer(scale:float = 1.0) Rasterizer.TextImage {
         if scale <= 0.0 { panic("GFX.Canvas text raster scale must be positive") }
         if !Math.nearly_equal(scale, self.retained_scale) || self.retained == null {
@@ -199,6 +223,25 @@ public class TextLayer {
 
     module func reuse_shaping(previous:@TextLayer) {
         self.current_shaping_revision = previous.current_shaping_revision
+    }
+
+    module func reuse_repositioned_raster(previous:@TextLayer) {
+        if let retained = previous.retained {
+            if let current = self.current_command {
+                if let old = previous.current_command {
+                    let delta = text_position(current).subtract(text_position(old))
+                    self.retained = Rasterizer.TextImage(
+                        image:retained.image,
+                        origin:Math.Vec2(
+                            retained.origin.x + delta.x,
+                            retained.origin.y + delta.y
+                        ),
+                        size:retained.size
+                    )
+                    self.retained_scale = previous.retained_scale
+                }
+            }
+        }
     }
 
     private func run_baselines() Math.Vec2[] {
@@ -261,6 +304,33 @@ module func updated_text_layer(
     return result
 }
 
+module func text_layer_repositionable(
+    command:Command,
+    width:int,
+    height:int,
+    previous:@TextLayer
+) bool {
+    return previous.can_reposition(command, width, height)
+}
+
+module func repositioned_text_layer(
+    command:Command,
+    width:int,
+    height:int,
+    previous:@TextLayer
+) TextLayer {
+    var result = TextLayer.updated(
+        command,
+        width,
+        height,
+        previous.id(),
+        previous.revision() + 1
+    )
+    result.reuse_shaping(previous)
+    result.reuse_repositioned_raster(previous)
+    return result
+}
+
 func shaped(instance:VectorFont.Instance, text:str) VectorFont.GlyphRun {
     match instance.shape(text) {
         failure(error) => { panic("GFX.Canvas could not shape retained text: " + error.detail) }
@@ -294,6 +364,36 @@ func same_shaping_command(first:@Command, second:@Command) bool {
         else => {}
     }
     return false
+}
+
+func same_raster_content(first:@Command, second:@Command) bool {
+    match first {
+        text(left) => {
+            match second {
+                text(right) => {
+                    return left.value == right.value && same_text_style(left.style, right.style)
+                }
+                else => {}
+            }
+        }
+        else => {}
+    }
+    return false
+}
+
+func text_position(command:@Command) Math.Vec2 {
+    match command {
+        text(value) => { return value.position }
+        else => {}
+    }
+    return Math.Vec2()
+}
+
+func translated_axis_fits(origin:float, size:float, delta:float, frame:int) bool {
+    if frame <= 0 || delta == 0.0 { return true }
+    let translated = origin + delta
+    return origin >= 0.0 && origin + size <= frame as float &&
+        translated >= 0.0 && translated + size <= frame as float
 }
 
 func same_text(first:@Command, second:@Command) bool {

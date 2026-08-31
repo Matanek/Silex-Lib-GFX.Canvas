@@ -407,6 +407,33 @@ test "pin hinted text pixels for ligatures marks and fixed cells" {
     assert(digest == "b5cfa3ecf2eb9ead47408e2b690b8aa30d49b51119398fcf8758b054839cfaf3")
 }
 
+test "blend retained font color over an opaque Canvas background" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Rect(Math.Vec2(), Math.Vec2(64.0, 24.0)),
+            Canvas.Fill.solid(Color.bytes(12, 16, 27))
+        )
+        painter.text(
+            "Visible",
+            Math.Vec2(2.0, 2.0),
+            Canvas.TextStyle(size:16.0, color:Color.bytes(232, 236, 244))
+        )
+    })
+    let pixels = drawing.rasterize(64, 24, Color.bytes(12, 16, 27)).pixels()
+    var changed = 0
+    var index = 0
+    while index < pixels.count() {
+        if pixels[index] != 12 as uint8 || pixels[index + 1] != 16 as uint8 ||
+            pixels[index + 2] != 27 as uint8
+        {
+            changed++
+        }
+        index += 4
+    }
+    assert(changed > 20)
+}
+
 test "build bounded retained geometry from drawing commands" {
     var drawing = Canvas()
     drawing.paint(paint_sample)

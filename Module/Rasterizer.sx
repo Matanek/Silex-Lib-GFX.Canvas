@@ -791,38 +791,91 @@ func draw_text_raster(
     color_value:Color
 ) {
     let source = C.address_bits(C.pointer(raster.alpha))
-    let color = Color.bytes(
-        color_channel(color_value.r),
-        color_channel(color_value.g),
-        color_channel(color_value.b),
-        color_channel(color_value.a)
-    )
-    var source_y = 0
-    while source_y < raster.height {
-        let target_y = destination_y + raster.offset_y + source_y
-        if target_y >= 0 && target_y < height {
-            var source_x = 0
-            while source_x < raster.width {
-                let target_x = destination_x + raster.offset_x + source_x
-                if target_x >= 0 && target_x < width {
-                    let alpha = C.load<uint8>(
-                        source,
-                        (source_y * raster.width + source_x) as uint
-                    )
-                    if alpha > 0 {
-                        blend(
-                            address,
-                            (target_y * width + target_x) * 4,
-                            color,
-                            alpha as float / 255.0
-                        )
-                    }
-                }
-                source_x++
+    let red = color_channel(color_value.r)
+    let green = color_channel(color_value.g)
+    let blue = color_channel(color_value.b)
+    let color_alpha = color_channel(color_value.a)
+    let target_left = destination_x + raster.offset_x
+    let target_top = destination_y + raster.offset_y
+    let source_left = max_int(0, -target_left)
+    let source_top = max_int(0, -target_top)
+    let source_right = min_int(raster.width, width - target_left)
+    let source_bottom = min_int(raster.height, height - target_top)
+    if source_left >= source_right || source_top >= source_bottom { return }
+    var source_y = source_top
+    while source_y < source_bottom {
+        let source_row = source_y * raster.width
+        var target_offset = ((target_top + source_y) * width + target_left + source_left) * 4
+        var source_x = source_left
+        while source_x < source_right {
+            let alpha = C.load<uint8>(source, (source_row + source_x) as uint)
+            if alpha > 0 {
+                blend_text_pixel(
+                    address,
+                    target_offset,
+                    red,
+                    green,
+                    blue,
+                    color_alpha,
+                    alpha
+                )
             }
+            target_offset += 4
+            source_x++
         }
         source_y++
     }
+}
+
+// A retained text image contains one monochrome command. Overlapping glyph
+// coverage therefore changes only alpha; recomputing three identical color
+// channels with the general RGBA blender wastes most of the composition cost.
+func blend_text_pixel(
+    address:uint,
+    offset:int,
+    red:uint8,
+    green:uint8,
+    blue:uint8,
+    color_alpha:uint8,
+    coverage:uint8
+) {
+    let destination_alpha = read_byte(address, offset + 3)
+    if destination_alpha > 0 {
+        let destination_red = read_byte(address, offset)
+        let destination_green = read_byte(address, offset + 1)
+        let destination_blue = read_byte(address, offset + 2)
+        if destination_red != red || destination_green != green || destination_blue != blue {
+            let source_alpha = color_alpha as float / 255.0 * coverage as float / 255.0
+            let destination_amount = destination_alpha as float / 255.0
+            let output_alpha = source_alpha + destination_amount * (1.0 - source_alpha)
+            write_byte(address, offset, color_channel((
+                red as float / 255.0 * source_alpha +
+                destination_red as float / 255.0 * destination_amount * (1.0 - source_alpha)
+            ) / output_alpha))
+            write_byte(address, offset + 1, color_channel((
+                green as float / 255.0 * source_alpha +
+                destination_green as float / 255.0 * destination_amount * (1.0 - source_alpha)
+            ) / output_alpha))
+            write_byte(address, offset + 2, color_channel((
+                blue as float / 255.0 * source_alpha +
+                destination_blue as float / 255.0 * destination_amount * (1.0 - source_alpha)
+            ) / output_alpha))
+            write_byte(address, offset + 3, color_channel(output_alpha))
+            return
+        }
+    }
+    let source_product = color_alpha as int * coverage as int
+    let output_alpha = (
+        source_product * 255 +
+        destination_alpha as int * (65025 - source_product) +
+        32512
+    ) / 65025
+    if destination_alpha == 0 {
+        write_byte(address, offset, red)
+        write_byte(address, offset + 1, green)
+        write_byte(address, offset + 2, blue)
+    }
+    write_byte(address, offset + 3, output_alpha as uint8)
 }
 
 func fixed_advance_metrics(
@@ -901,6 +954,11 @@ func draw_fixed_advance_text(
 
 func max_int(first:int, second:int) int {
     if first > second { return first }
+    return second
+}
+
+func min_int(first:int, second:int) int {
+    if first < second { return first }
     return second
 }
 
