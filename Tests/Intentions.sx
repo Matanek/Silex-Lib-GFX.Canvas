@@ -131,6 +131,36 @@ test "reuse cached line pixels when a retained text list scrolls" {
     assert(moved_gamma.origin == fresh_gamma.origin)
 }
 
+test "reuse shaped atlas runs when a retained text list scrolls" {
+    var first = Canvas()
+    first.paint(func(painter:&Painter) {
+        painter.text("Alpha", Math.Vec2(4.0, 2.0))
+        painter.text("Beta", Math.Vec2(4.0, 20.0))
+        painter.text("Gamma", Math.Vec2(4.0, 38.0))
+    })
+    var previous = first.snapshot(120, 60)
+    var old_layers = previous.text_layers()
+    var old_beta_run = old_layers[1].glyph_run()
+    var old_gamma_run = old_layers[2].glyph_run()
+
+    var scrolled = Canvas()
+    scrolled.paint(func(painter:&Painter) {
+        painter.text("Beta", Math.Vec2(4.0, 2.0))
+        painter.text("Gamma", Math.Vec2(4.0, 20.0))
+        painter.text("Delta", Math.Vec2(4.0, 38.0))
+    })
+    var reused = scrolled.snapshot(120, 60, reuse:previous)
+    var moved_layers = reused.text_layers()
+    var moved_beta_run = moved_layers[0].glyph_run()
+    var moved_gamma_run = moved_layers[1].glyph_run()
+    assert(moved_layers[0].id() == old_layers[1].id())
+    assert(moved_layers[1].id() == old_layers[2].id())
+    assert(moved_layers[0].shaping_revision() == old_layers[1].shaping_revision())
+    assert(moved_layers[1].shaping_revision() == old_layers[2].shaping_revision())
+    assert(moved_beta_run.glyphs() == old_beta_run.glyphs())
+    assert(moved_gamma_run.glyphs() == old_gamma_run.glyphs())
+}
+
 test "reuse shaping when only text color changes" {
     var first = Canvas()
     first.paint(func(painter:&Painter) {

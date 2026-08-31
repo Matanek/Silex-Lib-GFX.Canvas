@@ -1,5 +1,6 @@
 use GFX.Canvas.Command
 use GFX.Canvas.Rasterizer
+use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.Styles.TextAlignment
 use GFX.Canvas.Styles.TextStyle
 use GFX.Canvas.Styles.TextWeight
@@ -95,8 +96,23 @@ public class TextLayer {
         return Color.transparent()
     }
 
+    func clip() Rect? {
+        if let command = self.current_command {
+            match command {
+                text(value) => { return value.clip }
+                else => {}
+            }
+        }
+        return null
+    }
+
     func glyph_runs() VectorFont.GlyphRun[] {
         self.ensure_runs()
+        return self.retained_runs
+    }
+
+    module func ready_glyph_runs() VectorFont.GlyphRun[]? {
+        if !self.retained_runs_ready { return null }
         return self.retained_runs
     }
 
@@ -198,11 +214,14 @@ public class TextLayer {
     }
 
     module func can_reposition(command:@Command, width:int, height:int) bool {
-        if width != self.canvas_width || height != self.canvas_height || self.retained == null {
+        if width != self.canvas_width || height != self.canvas_height {
             return false
         }
         if let current = self.current_command {
             if !same_raster_content(command, current) { return false }
+            // Atlas and vector renderers retain shaped runs without creating a
+            // layer raster. They can still move the layer at zero shaping cost.
+            if self.retained == null { return true }
             if let retained = self.retained {
                 let delta = text_position(command).subtract(text_position(current))
                 return translated_axis_fits(
@@ -273,6 +292,10 @@ public class TextLayer {
 
     module func reuse_shaping(previous:@TextLayer) {
         self.current_shaping_revision = previous.current_shaping_revision
+        if let runs = previous.ready_glyph_runs() {
+            self.retained_runs = runs
+            self.retained_runs_ready = true
+        }
     }
 
     module func reuse_repositioned_raster(previous:@TextLayer) {
@@ -421,7 +444,9 @@ func same_raster_content(first:@Command, second:@Command) bool {
         text(left) => {
             match second {
                 text(right) => {
-                    return left.value == right.value && same_text_style(left.style, right.style)
+                    return left.value == right.value &&
+                        same_text_style(left.style, right.style) &&
+                        same_text_clip(left.clip, right.clip)
                 }
                 else => {}
             }
@@ -453,7 +478,8 @@ func same_text(first:@Command, second:@Command) bool {
                 text(right) => {
                     return left.value == right.value &&
                         left.position == right.position &&
-                        same_text_style(left.style, right.style)
+                        same_text_style(left.style, right.style) &&
+                        same_text_clip(left.clip, right.clip)
                 }
                 else => {}
             }
@@ -461,4 +487,17 @@ func same_text(first:@Command, second:@Command) bool {
         else => {}
     }
     return false
+}
+
+func same_text_clip(first:@Rect?, second:@Rect?) bool {
+    if let left = first {
+        if let right = second {
+            return left.position == right.position &&
+                left.size == right.size &&
+                left.radius == right.radius
+        }
+        return false
+    }
+    if let right = second { return false }
+    return true
 }

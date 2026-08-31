@@ -4,6 +4,7 @@ use GFX.Color
 use GFX.Canvas.Command
 use GFX.Canvas.Path.Path
 use GFX.Canvas.Path.Step
+use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.Styles.Brush
 use GFX.Canvas.Styles.TextAlignment
 use GFX.Canvas.Styles.TextMetrics
@@ -107,15 +108,28 @@ local func rasterize_text_bounds(
                 if style.alignment == TextAlignment.center { x -= metrics.width * scale * 0.5 }
                 if style.alignment == TextAlignment.end { x -= metrics.width * scale }
                 let y = value.position.y * scale
+                var command_minimum = Math.Vec2(x, y)
+                var command_upper = Math.Vec2(
+                    x + metrics.width * scale,
+                    y + metrics.height * scale
+                )
+                if let clip = value.clip {
+                    let clip_minimum = clip.position.multiply(scale)
+                    let clip_upper = clip.position.add(clip.size).multiply(scale)
+                    command_minimum = command_minimum.maximum(clip_minimum)
+                    command_upper = command_upper.minimum(clip_upper)
+                    if command_upper.x <= command_minimum.x ||
+                        command_upper.y <= command_minimum.y
+                    {
+                        continue
+                    }
+                }
                 if !found {
-                    minimum = Math.Vec2(x, y)
-                    upper = Math.Vec2(x + metrics.width * scale, y + metrics.height * scale)
+                    minimum = command_minimum
+                    upper = command_upper
                 } else {
-                    minimum = Math.Vec2(Math.min(minimum.x, x), Math.min(minimum.y, y))
-                    upper = Math.Vec2(
-                        Math.max(upper.x, x + metrics.width * scale),
-                        Math.max(upper.y, y + metrics.height * scale)
-                    )
+                    minimum = minimum.minimum(command_minimum)
+                    upper = upper.maximum(command_upper)
                 }
                 found = true
             }
@@ -230,6 +244,13 @@ func rasterize_selected(
             }
             text(value) => {
                 if !include_text { continue }
+                var clip:Rect? = null
+                if let bounds = value.clip {
+                    clip = Rect(
+                        bounds.position.multiply(text_scale).subtract(text_origin),
+                        bounds.size.multiply(text_scale)
+                    )
+                }
                 draw_text(
                     address,
                     width,
@@ -240,7 +261,8 @@ func rasterize_selected(
                         value.position.y * text_scale - text_origin.y
                     ),
                     value.style,
-                    text_scale
+                    text_scale,
+                    clip
                 )
             }
         }
@@ -735,7 +757,8 @@ func draw_font_text(
     position:Math.Vec2,
     style:TextStyle,
     font:Font,
-    density:float
+    density:float,
+    clip:Rect? = null
 ) {
     if value == "" { return }
     if let advance = style.fixed_advance {
@@ -748,7 +771,8 @@ func draw_font_text(
             style,
             font,
             advance,
-            density
+            density,
+            clip
         )
         return
     }
@@ -775,7 +799,8 @@ func draw_font_text(
             origin_x,
             position.y + line_index as float * line_height,
             style.color,
-            density
+            density,
+            clip
         )
         line_index++
     }
@@ -788,7 +813,8 @@ func draw_text_raster(
     raster:TextRaster,
     destination_x:int,
     destination_y:int,
-    color_value:Color
+    color_value:Color,
+    clip:Rect? = null
 ) {
     let source = C.address_bits(C.pointer(raster.alpha))
     let red = color_channel(color_value.r)
@@ -797,10 +823,26 @@ func draw_text_raster(
     let color_alpha = color_channel(color_value.a)
     let target_left = destination_x + raster.offset_x
     let target_top = destination_y + raster.offset_y
-    let source_left = max_int(0, -target_left)
-    let source_top = max_int(0, -target_top)
-    let source_right = min_int(raster.width, width - target_left)
-    let source_bottom = min_int(raster.height, height - target_top)
+    var clip_left = 0
+    var clip_top = 0
+    var clip_right = width
+    var clip_bottom = height
+    if let bounds = clip {
+        clip_left = Math.max(0.0, Math.ceil(bounds.position.x)) as int
+        clip_top = Math.max(0.0, Math.ceil(bounds.position.y)) as int
+        clip_right = Math.min(
+            width as float,
+            Math.floor(bounds.position.x + bounds.size.x)
+        ) as int
+        clip_bottom = Math.min(
+            height as float,
+            Math.floor(bounds.position.y + bounds.size.y)
+        ) as int
+    }
+    let source_left = max_int(0, clip_left - target_left)
+    let source_top = max_int(0, clip_top - target_top)
+    let source_right = min_int(raster.width, clip_right - target_left)
+    let source_bottom = min_int(raster.height, clip_bottom - target_top)
     if source_left >= source_right || source_top >= source_bottom { return }
     var source_y = source_top
     while source_y < source_bottom {
@@ -916,7 +958,8 @@ func draw_fixed_advance_text(
     style:TextStyle,
     font:Font,
     advance:float,
-    density:float
+    density:float,
+    clip:Rect? = null
 ) {
     let metrics = fixed_advance_metrics(
         value,
@@ -946,7 +989,8 @@ func draw_fixed_advance_text(
             origin_x,
             position.y + line_index as float * line_height,
             style.color,
-            density:density
+            density:density,
+            clip:clip
         )
         line_index++
     }
@@ -1016,7 +1060,8 @@ func draw_glyph_run(
     position_x:float,
     position_y:float,
     color:Color,
-    density:float = 1.0
+    density:float = 1.0,
+    clip:Rect? = null
 ) {
     var retained_run = run
     var instance = retained_run.instance()
@@ -1032,7 +1077,8 @@ func draw_glyph_run(
             Math.floor(position_x) as int + Math.round(glyph.origin_x * density as float64) as int,
             Math.floor(position_y) as int + baseline -
                 Math.round(glyph.origin_y * density as float64) as int,
-            color
+            color,
+            clip
         )
         if instance.synthesis().embolden {
             draw_text_raster(
@@ -1044,7 +1090,8 @@ func draw_glyph_run(
                     Math.max(1.0, Math.round(density)) as int,
                 Math.floor(position_y) as int + baseline -
                     Math.round(glyph.origin_y * density as float64) as int,
-                color
+                color,
+                clip
             )
         }
     }
@@ -1093,9 +1140,20 @@ func draw_text(
     value:str,
     position:Math.Vec2,
     style:TextStyle,
-    density:float = 1.0
+    density:float = 1.0,
+    clip:Rect? = null
 ) {
-    draw_font_text(address, width, height, value, position, style, style.typeface(), density)
+    draw_font_text(
+        address,
+        width,
+        height,
+        value,
+        position,
+        style,
+        style.typeface(),
+        density,
+        clip
+    )
 }
 
 func blend(address:uint, offset:int, color:Color, coverage:float) {

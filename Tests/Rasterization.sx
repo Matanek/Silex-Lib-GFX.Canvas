@@ -91,6 +91,32 @@ test "use the GFX default font when TextStyle omits a font" {
     assert(visible > 40)
 }
 
+test "clip text coverage at a rectangular viewport boundary" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.text(
+            "Hg",
+            Math.Vec2(1.0, 0.0),
+            Canvas.TextStyle(size:18.0, color:Color.white()),
+            clip:Canvas.Rect(Math.Vec2(0.0, 7.0), Math.Vec2(32.0, 7.0))
+        )
+    })
+    let pixels = drawing.rasterize(32, 24).pixels()
+    var visible_inside = 0
+    var y = 0
+    while y < 24 {
+        var x = 0
+        while x < 32 {
+            let alpha = pixels[(y * 32 + x) * 4 + 3]
+            if y < 7 || y >= 14 { assert(alpha == 0) }
+            elif alpha > 0 { visible_inside++ }
+            x++
+        }
+        y++
+    }
+    assert(visible_inside > 0)
+}
+
 test "offer a bundled monospace font" {
     var drawing = Canvas()
     var font = Canvas.Font.monospace()

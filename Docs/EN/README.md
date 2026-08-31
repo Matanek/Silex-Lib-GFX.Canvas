@@ -43,6 +43,12 @@ facades. An application can also supply a path, encoded bytes, or wrap an
 already validated `GFX.Font.Face` with `Canvas.Font(face)`. Canvas consumes
 GFX.Font runs and hinted coverage without exposing a native handle.
 
+`Painter.text(..., clip:Canvas.Rect(...))` attaches an axis-aligned rectangular
+clip to that text command. Raster and retained renderers can therefore keep an
+overscan line alive until its last visible pixel while preventing it from
+bleeding into adjacent controls. The clip is placement state, not font or
+shaping-cache state.
+
 ## Reuse drawing intentions
 
 `Canvas.commands()` returns a copy of public commands, `Path.steps()` exposes

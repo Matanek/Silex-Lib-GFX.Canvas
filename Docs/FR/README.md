@@ -44,6 +44,12 @@ ou envelopper une `GFX.Font.Face` déjà validée avec `Canvas.Font(face)`. Canv
 utilise les runs et couvertures hintées de GFX.Font sans exposer de handle
 natif.
 
+`Painter.text(..., clip:Canvas.Rect(...))` attache un découpage rectangulaire
+aligné sur les axes à cette commande texte. Les renderers raster et retenus
+peuvent ainsi conserver une ligne d'overscan jusqu'à son dernier pixel visible,
+sans la laisser déborder sur les contrôles voisins. Le découpage appartient au
+placement, pas à la font ni au cache de shaping.
+
 ## Réutiliser les intentions
 
 `Canvas.commands()` retourne une copie des commandes publiques,

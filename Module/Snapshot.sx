@@ -2,6 +2,7 @@ use GFX.Assets.Image
 use GFX.Canvas.Geometry.Mesh
 use GFX.Canvas.Command
 use GFX.Canvas.Rasterizer
+use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.TextLayer.TextLayer
 use GFX.Canvas.TextLayer.repositioned_text_layer
 use GFX.Canvas.TextLayer.text_layer_repositionable
@@ -21,6 +22,7 @@ public class Snapshot {
     private var retained_text:Rasterizer.TextImage? = null
     private let text_commands:Command[]
     private var retained_text_layers:TextLayer[]
+    private var reusable_text_layers:TextLayer[]
     private let text_width:int
     private let text_height:int
     private var text_scale:float
@@ -35,6 +37,7 @@ public class Snapshot {
         self.retained_geometry = Mesh()
         self.text_commands = []
         self.retained_text_layers = []
+        self.reusable_text_layers = []
         self.text_width = 1
         self.text_height = 1
         self.text_scale = 1.0
@@ -55,6 +58,7 @@ public class Snapshot {
             width,
             height
         )
+        self.reusable_text_layers = []
         self.text_width = width
         self.text_height = height
         self.text_scale = 1.0
@@ -71,6 +75,7 @@ public class Snapshot {
         var retained_commands = retained_text_commands(commands)
         self.text_commands = retained_commands
         self.retained_text_layers = create_text_layers(retained_commands, 0, 0)
+        self.reusable_text_layers = []
         self.text_width = 0
         self.text_height = 0
         self.text_scale = 1.0
@@ -130,18 +135,19 @@ public class Snapshot {
 
     private func retain_text_layers(previous:@Snapshot) {
         var retained:TextLayer[] = []
+        var candidates = previous.text_retention_candidates()
         var used:bool[] = []
-        for layer in previous.retained_text_layers { used.append(false) }
+        for layer in candidates { used.append(false) }
         var index = 0
         while index < self.text_commands.count() {
-            if index < previous.retained_text_layers.count() && !used[index] {
+            if index < candidates.count() && !used[index] {
                 if text_layer_unchanged(
                     self.text_commands[index],
                     self.text_width,
                     self.text_height,
-                    previous.retained_text_layers[index]
+                    candidates[index]
                 ) {
-                    retained.append(previous.retained_text_layers[index])
+                    retained.append(candidates[index])
                     used[index] = true
                     index++
                     continue
@@ -149,12 +155,12 @@ public class Snapshot {
             }
             var moved = -1
             var previous_index = 0
-            while previous_index < previous.retained_text_layers.count() {
+            while previous_index < candidates.count() {
                 if !used[previous_index] && text_layer_repositionable(
                     self.text_commands[index],
                     self.text_width,
                     self.text_height,
-                    previous.retained_text_layers[previous_index]
+                    candidates[previous_index]
                 ) {
                     moved = previous_index
                     break
@@ -166,15 +172,15 @@ public class Snapshot {
                     self.text_commands[index],
                     self.text_width,
                     self.text_height,
-                    previous.retained_text_layers[moved]
+                    candidates[moved]
                 ))
                 used[moved] = true
-            } else if index < previous.retained_text_layers.count() && !used[index] {
+            } else if index < candidates.count() && !used[index] {
                 retained.append(updated_text_layer(
                     self.text_commands[index],
                     self.text_width,
                     self.text_height,
-                    previous.retained_text_layers[index]
+                    candidates[index]
                 ))
                 used[index] = true
             } else {
@@ -187,6 +193,20 @@ public class Snapshot {
             index++
         }
         self.retained_text_layers = retained
+        var reusable:TextLayer[] = []
+        var candidate = 0
+        while candidate < candidates.count() && reusable.count() < 192 {
+            if !used[candidate] { reusable.append(candidates[candidate]) }
+            candidate++
+        }
+        self.reusable_text_layers = reusable
+    }
+
+    private func text_retention_candidates() TextLayer[] {
+        var result:TextLayer[] = []
+        for layer in self.retained_text_layers { result.append(layer) }
+        for layer in self.reusable_text_layers { result.append(layer) }
+        return result
     }
 }
 
@@ -256,7 +276,8 @@ func same_text_commands(first:@Command[], second:@Command[]) bool {
                     text(right) => {
                         equal = left.value == right.value &&
                             left.position == right.position &&
-                            same_text_style(left.style, right.style)
+                            same_text_style(left.style, right.style) &&
+                            same_snapshot_text_clip(left.clip, right.clip)
                     }
                     else => {}
                 }
@@ -266,5 +287,18 @@ func same_text_commands(first:@Command[], second:@Command[]) bool {
         if !equal { return false }
         index++
     }
+    return true
+}
+
+func same_snapshot_text_clip(first:@Rect?, second:@Rect?) bool {
+    if let left = first {
+        if let right = second {
+            return left.position == right.position &&
+                left.size == right.size &&
+                left.radius == right.radius
+        }
+        return false
+    }
+    if let right = second { return false }
     return true
 }

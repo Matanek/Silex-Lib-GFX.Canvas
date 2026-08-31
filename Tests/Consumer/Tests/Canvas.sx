@@ -92,14 +92,20 @@ test "place grapheme clusters on a fixed text grid" {
         painter.text(
             "grid",
             Math.Vec2(1.0),
-            Canvas.TextStyle(size:16.0, fixed_advance:10.0)
+            Canvas.TextStyle(size:16.0, fixed_advance:10.0),
+            clip:Canvas.Rect(Math.Vec2(0.0, 2.0), Math.Vec2(48.0, 18.0))
         )
     })
     let raster = drawing.rasterize(48, 24)
     assert(raster.width() == 48)
     assert(raster.height() == 24)
 
-    let layer = drawing.snapshot(48, 24).text_layers()[0].text_layer(2.0)
+    var retained = drawing.snapshot(48, 24).text_layers()[0]
+    if let clip = retained.clip() {
+        assert(clip.position.y == 2.0)
+        assert(clip.size.y == 18.0)
+    } else { assert(false) }
+    let layer = retained.text_layer(2.0)
     assert(layer.size.x == 40.0)
     assert(layer.image.width() == 80)
 }

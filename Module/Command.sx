@@ -18,6 +18,19 @@ public struct Text {
     let value:str
     let position:Math.Vec2
     var style:TextStyle
+    let clip:Rect?
+
+    init(
+        value:str,
+        position:Math.Vec2,
+        style:TextStyle,
+        clip:Rect? = null
+    ) {
+        self.value = value
+        self.position = position
+        self.style = style
+        self.clip = clip
+    }
 }
 
 public enum Command {
