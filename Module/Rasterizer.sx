@@ -7,6 +7,12 @@ use GFX.Canvas.Path.Path
 use GFX.Canvas.Path.Step
 use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.Styles.Brush
+use GFX.Canvas.Styles.Fill
+use GFX.Canvas.ImagePaint.ImageFit
+use GFX.Canvas.ImagePaint.ImageMapping
+use GFX.Canvas.ImagePaint.ImageMappingKind
+use GFX.Canvas.ImagePaint.ImageSampling
+use GFX.Canvas.ImagePaint.validate_image_mapping
 use GFX.Canvas.Styles.TextAlignment
 use GFX.Canvas.Styles.TextMetrics
 use GFX.Canvas.Styles.TextStyle
@@ -42,6 +48,14 @@ enum Coverage {
 struct Bounds {
     let minimum:Math.Vec2
     let maximum:Math.Vec2
+}
+
+struct RasterImageFill {
+    let pixels:uint8[]
+    let width:int
+    let height:int
+    let region:Image.Region
+    let mapping:ImageMapping
 }
 
 package func logical_bounds(commands:@Command[], effects:@Effect[] = []) Rect? {
@@ -330,7 +344,7 @@ func draw_commands(
         match command {
             fill_rect(value) => {
                 if !include_shapes { continue }
-                draw_covered(address, width, height, value.style.brush(), Coverage.rect_fill(RectFillCoverage(
+                draw_fill_covered(address, width, height, value.style, Coverage.rect_fill(RectFillCoverage(
                     position:value.shape.position.subtract(text_origin), size:value.shape.size, radius:value.shape.radius
                 )), text_origin)
             }
@@ -342,7 +356,7 @@ func draw_commands(
             }
             fill_circle(value) => {
                 if !include_shapes { continue }
-                draw_covered(address, width, height, value.style.brush(), Coverage.circle_fill(CircleFillCoverage(
+                draw_fill_covered(address, width, height, value.style, Coverage.circle_fill(CircleFillCoverage(
                     center:value.shape.center.subtract(text_origin), radius:value.shape.radius
                 )), text_origin)
             }
@@ -361,7 +375,7 @@ func draw_commands(
             fill_path(value) => {
                 if !include_shapes { continue }
                 let polyline = translated_polyline(flatten(value.shape), text_origin)
-                draw_path(address, width, height, value.style.brush(), polyline, 0.0, true, text_origin)
+                draw_fill_path(address, width, height, value.style, polyline, text_origin)
             }
             stroke_path(value) => {
                 if !include_shapes { continue }
@@ -761,6 +775,41 @@ func draw_covered(
     }
 }
 
+func draw_fill_covered(
+    address:uint,
+    width:int,
+    height:int,
+    fill:Fill,
+    coverage:Coverage,
+    brush_origin:Math.Vec2
+) {
+    if !fill.is_image() {
+        draw_covered(address, width, height, fill.brush(), coverage, brush_origin)
+        return
+    }
+    let source = raster_image_fill(fill)
+    let bounds = coverage_bounds(coverage)
+    let minimum_x = Math.max(0.0, Math.floor(bounds.minimum.x)) as int
+    let minimum_y = Math.max(0.0, Math.floor(bounds.minimum.y)) as int
+    let maximum_x = Math.min(width as float, Math.ceil(bounds.maximum.x)) as int
+    let maximum_y = Math.min(height as float, Math.ceil(bounds.maximum.y)) as int
+    var y = minimum_y
+    while y < maximum_y {
+        var x = minimum_x
+        while x < maximum_x {
+            let amount = shape_coverage(coverage, x, y)
+            if amount > 0.0 {
+                let point = Math.Vec2(x as float + 0.5, y as float + 0.5)
+                    .add(brush_origin)
+                let color = image_color_at(source, point)
+                blend(address, (y * width + x) * 4, color, amount)
+            }
+            x++
+        }
+        y++
+    }
+}
+
 func shape_coverage(coverage:@Coverage, x:int, y:int) float {
     var covered = 0
     var sample_y = 0
@@ -853,6 +902,177 @@ func draw_path(
         }
         y++
     }
+}
+
+func draw_fill_path(
+    address:uint,
+    width:int,
+    height:int,
+    fill:Fill,
+    line:@Polyline,
+    brush_origin:Math.Vec2
+) {
+    if !fill.is_image() {
+        draw_path(address, width, height, fill.brush(), line, 0.0, true, brush_origin)
+        return
+    }
+    let source = raster_image_fill(fill)
+    let bounds = polyline_bounds(line, 0.0)
+    let minimum_x = Math.max(0.0, Math.floor(bounds.minimum.x)) as int
+    let minimum_y = Math.max(0.0, Math.floor(bounds.minimum.y)) as int
+    let maximum_x = Math.min(width as float, Math.ceil(bounds.maximum.x)) as int
+    let maximum_y = Math.min(height as float, Math.ceil(bounds.maximum.y)) as int
+    var y = minimum_y
+    while y < maximum_y {
+        var x = minimum_x
+        while x < maximum_x {
+            let amount = path_coverage(line, x, y, 0.0, true)
+            if amount > 0.0 {
+                let point = Math.Vec2(x as float + 0.5, y as float + 0.5)
+                    .add(brush_origin)
+                let color = image_color_at(source, point)
+                blend(address, (y * width + x) * 4, color, amount)
+            }
+            x++
+        }
+        y++
+    }
+}
+
+func raster_image_fill(fill:@Fill) RasterImageFill {
+    var paint = fill.image_paint()
+    let mapping = fill.image_mapping()
+    let region = validate_image_mapping(paint, mapping)
+    let image = paint.image()
+    return RasterImageFill(
+        pixels:image.pixels(),
+        width:image.width(),
+        height:image.height(),
+        region:region,
+        mapping:mapping
+    )
+}
+
+func image_color_at(source:@RasterImageFill, point:Math.Vec2) Color {
+    let mapping = source.mapping
+    var coordinate = Math.Vec2()
+    if mapping.kind() == ImageMappingKind.tile {
+        coordinate = point.subtract(mapping.origin()).divide(mapping.texel_size())
+        if mapping.sampling() == ImageSampling.pixelated {
+            return image_texel(
+                source,
+                wrapped(Math.floor(coordinate.x) as int, source.region.width),
+                wrapped(Math.floor(coordinate.y) as int, source.region.height)
+            )
+        }
+        return smooth_tile(source, coordinate)
+    }
+
+    let frame = mapping.frame()
+    if !inside_half_open(point, frame.position, frame.size) {
+        return Color.transparent()
+    }
+    var destination_origin = frame.position
+    var destination_size = frame.size
+    if mapping.mode() != ImageFit.stretch {
+        let source_size = Math.Vec2(
+            source.region.width as float,
+            source.region.height as float
+        )
+        let scale_x = frame.size.x / source_size.x
+        let scale_y = frame.size.y / source_size.y
+        var scale = Math.min(scale_x, scale_y)
+        if mapping.mode() == ImageFit.cover { scale = Math.max(scale_x, scale_y) }
+        destination_size = source_size.multiply(scale)
+        destination_origin = frame.position.add(
+            frame.size.subtract(destination_size).multiply(mapping.alignment())
+        )
+        if mapping.mode() == ImageFit.contain &&
+            !inside_half_open(point, destination_origin, destination_size)
+        {
+            return Color.transparent()
+        }
+    }
+    coordinate = point.subtract(destination_origin).divide(destination_size)
+    if mapping.sampling() == ImageSampling.pixelated {
+        var x = Math.floor(coordinate.x * source.region.width as float) as int
+        var y = Math.floor(coordinate.y * source.region.height as float) as int
+        if x >= source.region.width { x = source.region.width - 1 }
+        if y >= source.region.height { y = source.region.height - 1 }
+        return image_texel(source, x, y)
+    }
+    return smooth_fit(source, coordinate)
+}
+
+func inside_half_open(point:Math.Vec2, origin:Math.Vec2, size:Math.Vec2) bool {
+    return point.x >= origin.x && point.y >= origin.y &&
+        point.x < origin.x + size.x && point.y < origin.y + size.y
+}
+
+func wrapped(value:int, size:int) int {
+    var result = value % size
+    if result < 0 { result += size }
+    return result
+}
+
+func image_texel(source:@RasterImageFill, x:int, y:int) Color {
+    let selected_x = source.region.x + x
+    let selected_y = source.region.y + y
+    let offset = (selected_y * source.width + selected_x) * 4
+    return Color.bytes(
+        source.pixels[offset],
+        source.pixels[offset + 1],
+        source.pixels[offset + 2],
+        source.pixels[offset + 3]
+    )
+}
+
+func smooth_fit(source:@RasterImageFill, normalized:Math.Vec2) Color {
+    let x = -0.5 + normalized.x * source.region.width as float
+    let y = -0.5 + normalized.y * source.region.height as float
+    let x0 = Math.floor(x) as int
+    let y0 = Math.floor(y) as int
+    let amount_x = x - x0 as float
+    let amount_y = y - y0 as float
+    let left = clamped_index(x0, source.region.width)
+    let right = clamped_index(x0 + 1, source.region.width)
+    let top = clamped_index(y0, source.region.height)
+    let bottom = clamped_index(y0 + 1, source.region.height)
+    return image_texel(source, left, top)
+        .lerp(image_texel(source, right, top), amount_x)
+        .lerp(
+            image_texel(source, left, bottom)
+                .lerp(image_texel(source, right, bottom), amount_x),
+            amount_y
+        )
+}
+
+func clamped_index(value:int, size:int) int {
+    if value < 0 { return 0 }
+    if value >= size { return size - 1 }
+    return value
+}
+
+func smooth_tile(source:@RasterImageFill, coordinate:Math.Vec2) Color {
+    let x = Math.modulo(coordinate.x, source.region.width as float) - 0.5
+    let y = Math.modulo(coordinate.y, source.region.height as float) - 0.5
+    let x0 = Math.floor(x) as int
+    let y0 = Math.floor(y) as int
+    let amount_x = x - x0 as float
+    let amount_y = y - y0 as float
+    return image_texel(source, wrapped(x0, source.region.width), wrapped(y0, source.region.height))
+        .lerp(
+            image_texel(source, wrapped(x0 + 1, source.region.width), wrapped(y0, source.region.height)),
+            amount_x
+        )
+        .lerp(
+            image_texel(source, wrapped(x0, source.region.width), wrapped(y0 + 1, source.region.height))
+                .lerp(
+                    image_texel(source, wrapped(x0 + 1, source.region.width), wrapped(y0 + 1, source.region.height)),
+                    amount_x
+                ),
+            amount_y
+        )
 }
 
 func draw_stroked_path(

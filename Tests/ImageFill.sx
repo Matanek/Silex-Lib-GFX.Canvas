@@ -1,0 +1,143 @@
+use GFX.Assets.Image
+use GFX.Canvas
+use STD.Math
+
+func marker_image() Image {
+    return Image.rgba8(2, 2, [
+        255, 0, 0, 255,       0, 255, 0, 255,
+        0, 0, 255, 255,       255, 255, 0, 255
+    ])
+}
+
+func pixel_equals(image:@Image, x:int, y:int, expected:uint8[]) bool {
+    assert(expected.count() == 4)
+    let pixels = image.pixels()
+    let offset = (y * image.width() + x) * 4
+    var channel = 0
+    while channel < 4 {
+        if pixels[offset + channel] != expected[channel] { return false }
+        channel++
+    }
+    return true
+}
+
+func alpha_at(image:@Image, x:int, y:int) uint8 {
+    let pixels = image.pixels()
+    return pixels[(y * image.width() + x) * 4 + 3]
+}
+
+test "stretch an asymmetric image without changing the analytic mask" {
+    var paint = Canvas.ImagePaint(marker_image())
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Rect(Math.Vec2(), Math.Vec2(4.0)),
+            Canvas.Fill.image(
+                paint,
+                Canvas.ImageMapping.fit(
+                    frame:Canvas.Rect(Math.Vec2(), Math.Vec2(4.0)),
+                    mode:Canvas.ImageFit.stretch,
+                    sampling:Canvas.ImageSampling.pixelated
+                )
+            )
+        )
+    })
+
+    let image = drawing.rasterize(4, 4)
+    assert(pixel_equals(image, 0, 0, [255, 0, 0, 255]))
+    assert(pixel_equals(image, 3, 0, [0, 255, 0, 255]))
+    assert(pixel_equals(image, 0, 3, [0, 0, 255, 255]))
+    assert(pixel_equals(image, 3, 3, [255, 255, 0, 255]))
+    var surface = Canvas.Surface(4, 4)
+    surface.draw(drawing)
+    let surface_image = surface.image()
+    assert(pixel_equals(surface_image, 0, 0, [255, 0, 0, 255]))
+    assert(pixel_equals(surface_image, 3, 3, [255, 255, 0, 255]))
+    assert(!drawing.vector_geometry_compatible())
+    var content = drawing.prepared(4, 4).content()
+    assert(content.count() == 1)
+    match content[0] {
+        image(value) => {
+            assert(value.geometry().vertex_count() == 6)
+            assert(value.paint().id() == paint.id())
+        }
+        else => { assert(false, "expected retained image content") }
+    }
+}
+
+test "contain cover and tile use explicit logical coordinates" {
+    var paint = Canvas.ImagePaint(marker_image())
+    var contained = Canvas()
+    contained.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Circle(Math.Vec2(3.0, 2.0), 2.0),
+            Canvas.Fill.image(
+                paint,
+                Canvas.ImageMapping.fit(
+                    frame:Canvas.Rect(Math.Vec2(), Math.Vec2(6.0, 4.0)),
+                    mode:Canvas.ImageFit.contain,
+                    sampling:Canvas.ImageSampling.pixelated
+                )
+            )
+        )
+    })
+    let contain_image = contained.rasterize(6, 4)
+    assert(alpha_at(contain_image, 0, 2) == 0)
+    assert(alpha_at(contain_image, 1, 1) > 0)
+
+    var tiled = Canvas()
+    tiled.paint(func(painter:&Canvas.Painter) {
+        var path = Canvas.Path()
+            ..move_to(Math.Vec2())
+            ..line_to(Math.Vec2(4.0, 0.0))
+            ..line_to(Math.Vec2(4.0, 3.0))
+            ..line_to(Math.Vec2(2.0, 2.0))
+            ..line_to(Math.Vec2(0.0, 3.0))
+            ..close()
+        painter.fill(
+            path,
+            Canvas.Fill.image(
+                paint,
+                Canvas.ImageMapping.tile(
+                    origin:Math.Vec2(-1.0),
+                    texel_size:Math.Vec2(1.0),
+                    sampling:Canvas.ImageSampling.pixelated
+                )
+            )
+        )
+    })
+    let tile_image = tiled.rasterize(4, 3)
+    assert(pixel_equals(tile_image, 0, 0, [255, 255, 0, 255]))
+    assert(pixel_equals(tile_image, 1, 0, [0, 0, 255, 255]))
+    assert(alpha_at(tile_image, 2, 2) < 255)
+}
+
+test "replace an ImagePaint while preserving its retained identity" {
+    var paint = Canvas.ImagePaint(marker_image())
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Rect(Math.Vec2(), Math.Vec2(2.0)),
+            Canvas.Fill.image(
+                paint,
+                Canvas.ImageMapping.fit(
+                    frame:Canvas.Rect(Math.Vec2(), Math.Vec2(2.0)),
+                    region:Image.Region(1, 0, 1, 2)
+                )
+            )
+        )
+    })
+    let first_revision = drawing.revision()
+    let identity = paint.id()
+    var first = drawing.prepared(2, 2)
+    let first_prepared_revision = first.revision()
+    paint.replace(Image.rgba8(2, 2, [
+        255, 255, 255, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 255, 255, 255, 255
+    ]))
+    assert(drawing.revision() > first_revision)
+    assert(paint.id() == identity)
+    assert(paint.revision() == 2)
+    var replaced = drawing.prepared(2, 2)
+    assert(replaced.revision() != first_prepared_revision)
+}

@@ -50,6 +50,58 @@ peuvent ainsi conserver une ligne d'overscan jusqu'à son dernier pixel visible,
 sans la laisser déborder sur les contrôles voisins. Le découpage appartient au
 placement, pas à la font ni au cache de shaping.
 
+## Remplir une forme avec une image
+
+`ImagePaint` conserve une image autonome avec une identité et une révision.
+Le mappage reste séparé du contour : un rectangle analytique garde donc ses
+six sommets et ses coordonnées de distance, tandis que le renderer reçoit
+également la source image et son repère logique.
+
+```sx
+use GFX.Assets.Image
+use GFX.Canvas
+use STD.Math
+
+var portrait = Canvas.ImagePaint(Image.rgba8(2, 1, [
+    255, 96, 64, 255,
+    64, 128, 255, 255
+]))
+let frame = Canvas.Rect(Math.Vec2(8.0), Math.Vec2(96.0, 64.0))
+
+var drawing = Canvas()
+drawing.paint(func(painter:&Canvas.Painter) {
+    painter.fill(
+        frame,
+        Canvas.Fill.image(
+            portrait,
+            Canvas.ImageMapping.fit(
+                frame:frame,
+                mode:Canvas.ImageFit.cover,
+                alignment:Math.Vec2(0.5),
+                sampling:Canvas.ImageSampling.smooth
+            )
+        )
+    )
+})
+```
+
+`stretch` associe les bords source et destination, `contain` conserve toute
+l'image avec des zones transparentes et `cover` remplit le cadre en le
+recadrant. `ImageMapping.tile(origin, texel_size, ...)` répète plutôt la région
+source sur les deux axes, y compris avant une origine négative. Le repère est
+celui de Canvas et des images : origine en haut à gauche, Y vers le bas. Une
+`Image.Region` optionnelle désigne un rectangle de pixels demi-ouvert ; elle
+est validée contre l'image courante avant préparation ou rastérisation.
+
+`portrait.replace(next_image)` conserve l'identité, incrémente la révision et
+invalide les préparations qui l'emploient. Une région devenue incompatible
+échoue explicitement au prochain usage. `Canvas.rasterize`, `Surface.draw` et
+Scene2D appliquent le même mappage. Pour un renderer alternatif,
+`Prepared.content()` expose une valeur `image` contenant le mesh du masque,
+l'`ImagePaint` et l'`ImageMapping`. Un tel remplissage rend
+`vector_geometry_compatible()` faux, car le mesh seul ne peut pas transporter
+la source image sans détourner ses coordonnées analytiques.
+
 ## Isoler un groupe et lui appliquer des effets
 
 `Painter.layer` regroupe plusieurs intentions avant de leur appliquer une
@@ -141,7 +193,7 @@ peut donc partager la compilation sans reconstruire ni remplacer chaque
 composant.
 
 `Snapshot.content()` et `Prepared.content()` conservent l'ordre général sous
-forme de valeurs `geometry`, `text` et `layer`. Le contenu d'une couche expose
+forme de valeurs `geometry`, `image`, `text` et `layer`. Le contenu d'une couche expose
 ses effets, ses bornes, son identité et sa révision. Un renderer alternatif
 peut donc rejouer forme, texte et groupe dans l'ordre de l'auteur, sans tenter
 de le reconstruire depuis un mesh agrégé et une liste de textes séparée.

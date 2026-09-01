@@ -1,0 +1,171 @@
+use GFX.Assets.Image
+use GFX.Canvas.Shapes.Rect
+use STD.Math
+
+public enum ImageFit {
+    stretch
+    contain
+    cover
+}
+
+public enum ImageSampling {
+    smooth
+    pixelated
+}
+
+public enum ImageMappingKind {
+    fit
+    tile
+}
+
+// A retained image source owned by Canvas. Replacing its value preserves the
+// identity used by render caches and advances only its revision.
+public class ImagePaint {
+    private static var next_identity:int = 1
+    private let current_identity:int
+    private var current_revision:int
+    private var current_image:Image
+
+    init(image:Image) {
+        self.current_identity = ImagePaint.next_identity
+        ImagePaint.next_identity++
+        self.current_revision = 1
+        self.current_image = image
+    }
+
+    func id() int { return self.current_identity }
+    func revision() int { return self.current_revision }
+    func image() Image { return self.current_image }
+
+    func replace(image:Image) {
+        self.current_image = image
+        self.current_revision++
+    }
+}
+
+// Logical image coordinates are independent from the shape contour. The
+// source region, when omitted, is resolved against the current ImagePaint.
+public struct ImageMapping {
+    private let current_kind:ImageMappingKind
+    private let current_frame:Rect
+    private let current_mode:ImageFit
+    private let current_alignment:Math.Vec2
+    private let current_origin:Math.Vec2
+    private let current_texel_size:Math.Vec2
+    private let current_sampling:ImageSampling
+    private let current_region:Image.Region?
+
+    private init(
+        kind:ImageMappingKind,
+        frame:Rect,
+        mode:ImageFit,
+        alignment:Math.Vec2,
+        origin:Math.Vec2,
+        texel_size:Math.Vec2,
+        sampling:ImageSampling,
+        region:Image.Region?
+    ) {
+        self.current_kind = kind
+        self.current_frame = frame
+        self.current_mode = mode
+        self.current_alignment = alignment
+        self.current_origin = origin
+        self.current_texel_size = texel_size
+        self.current_sampling = sampling
+        self.current_region = region
+    }
+
+    static func fit(
+        frame:Rect,
+        mode:ImageFit = ImageFit.stretch,
+        alignment:Math.Vec2 = Math.Vec2(0.5),
+        sampling:ImageSampling = ImageSampling.smooth,
+        region:Image.Region? = null
+    ) ImageMapping {
+        if !finite(frame.position) || !finite(frame.size) ||
+            frame.size.x <= 0.0 || frame.size.y <= 0.0
+        {
+            panic("GFX.Canvas image fit frame must be finite and positive")
+        }
+        if !finite(alignment) || alignment.x < 0.0 || alignment.x > 1.0 ||
+            alignment.y < 0.0 || alignment.y > 1.0
+        {
+            panic("GFX.Canvas image fit alignment must be within [0, 1]")
+        }
+        return ImageMapping(
+            ImageMappingKind.fit,
+            frame,
+            mode,
+            alignment,
+            Math.Vec2(),
+            Math.Vec2(1.0),
+            sampling,
+            region
+        )
+    }
+
+    static func tile(
+        origin:Math.Vec2 = Math.Vec2(),
+        texel_size:Math.Vec2 = Math.Vec2(1.0),
+        sampling:ImageSampling = ImageSampling.smooth,
+        region:Image.Region? = null
+    ) ImageMapping {
+        if !finite(origin) || !finite(texel_size) ||
+            texel_size.x <= 0.0 || texel_size.y <= 0.0
+        {
+            panic("GFX.Canvas image tile coordinates must be finite with positive texel size")
+        }
+        return ImageMapping(
+            ImageMappingKind.tile,
+            Rect(Math.Vec2(), Math.Vec2(1.0)),
+            ImageFit.stretch,
+            Math.Vec2(0.5),
+            origin,
+            texel_size,
+            sampling,
+            region
+        )
+    }
+
+    func kind() ImageMappingKind { return self.current_kind }
+    func frame() Rect { return self.current_frame }
+    func mode() ImageFit { return self.current_mode }
+    func alignment() Math.Vec2 { return self.current_alignment }
+    func origin() Math.Vec2 { return self.current_origin }
+    func texel_size() Math.Vec2 { return self.current_texel_size }
+    func sampling() ImageSampling { return self.current_sampling }
+    func region() Image.Region? { return self.current_region }
+}
+
+module func validate_image_mapping(
+    paint:@ImagePaint,
+    mapping:@ImageMapping
+) Image.Region {
+    let image = paint.image()
+    var selected = Image.Region(0, 0, image.width(), image.height())
+    if let region = mapping.region() { selected = region }
+    if selected.x + selected.width > image.width() ||
+        selected.y + selected.height > image.height()
+    {
+        panic(
+            "GFX.Canvas ImagePaint identity $(paint.id()) does not contain " +
+            "region [$(selected.x), $(selected.y), $(selected.width), $(selected.height))"
+        )
+    }
+    return selected
+}
+
+module func same_image_mapping(first:@ImageMapping, second:@ImageMapping) bool {
+    return first.kind() == second.kind() &&
+        first.frame() == second.frame() &&
+        first.mode() == second.mode() &&
+        first.alignment() == second.alignment() &&
+        first.origin() == second.origin() &&
+        first.texel_size() == second.texel_size() &&
+        first.sampling() == second.sampling() &&
+        first.region() == second.region()
+}
+
+func finite(value:Math.Vec2) bool {
+    return Math.is_finite(value.x) && Math.is_finite(value.y)
+}

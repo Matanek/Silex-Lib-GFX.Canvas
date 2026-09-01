@@ -3,6 +3,7 @@ use GFX.Color
 use GFX.Canvas.Command
 use GFX.Canvas.Command.CommandBuffer
 use GFX.Canvas.Command.Layer
+use GFX.Canvas.Command.command_resource_revision
 use GFX.Canvas.Effects.Effect
 use GFX.Canvas.Geometry
 use GFX.Canvas.Path.Path
@@ -82,7 +83,10 @@ public class Canvas {
     }
 
     func commands() Command[] { return self.command_buffer.values() }
-    func revision() int { return self.current_revision }
+    func revision() int {
+        var commands = self.command_buffer.values()
+        return self.current_revision + command_resource_revision(commands)
+    }
     func is_empty() bool { return self.command_buffer.count() == 0 }
     func command_count() int { return self.command_buffer.count() }
 
@@ -94,7 +98,7 @@ public class Canvas {
     func vector_geometry() Geometry.Mesh {
         var commands = self.command_buffer.values()
         if !Vectorizer.compatible(commands) {
-            panic("GFX.Canvas vector geometry cannot represent layered effects")
+            panic("GFX.Canvas vector geometry cannot represent effects or image fills; use content")
         }
         return Vectorizer.geometry(commands)
     }
@@ -124,7 +128,8 @@ public class Canvas {
     }
 
     func snapshot() Snapshot {
-        if self.cached_snapshot_revision == self.current_revision &&
+        let revision = self.revision()
+        if self.cached_snapshot_revision == revision &&
             !self.cached_snapshot_framed
         {
             if let snapshot = self.cached_snapshot { return snapshot }
@@ -132,7 +137,7 @@ public class Canvas {
         var commands = self.command_buffer.values()
         var snapshot = Snapshot(Vectorizer.geometry(commands), commands)
         self.cached_snapshot = snapshot
-        self.cached_snapshot_revision = self.current_revision
+        self.cached_snapshot_revision = revision
         self.cached_snapshot_width = 0
         self.cached_snapshot_height = 0
         self.cached_snapshot_framed = false
@@ -143,7 +148,8 @@ public class Canvas {
         if width <= 0 || height <= 0 {
             panic("GFX.Canvas snapshot dimensions must be positive")
         }
-        if self.cached_snapshot_revision == self.current_revision &&
+        let revision = self.revision()
+        if self.cached_snapshot_revision == revision &&
             self.cached_snapshot_framed &&
             self.cached_snapshot_width == width && self.cached_snapshot_height == height
         {
@@ -156,7 +162,7 @@ public class Canvas {
             height
         )
         self.cached_snapshot = snapshot
-        self.cached_snapshot_revision = self.current_revision
+        self.cached_snapshot_revision = revision
         self.cached_snapshot_width = width
         self.cached_snapshot_height = height
         self.cached_snapshot_framed = true
@@ -191,13 +197,14 @@ public class Canvas {
     }
 
     private func cached_prepared(width:int, height:int, framed:bool) Prepared {
+        let revision = self.revision()
         var index = 0
         while index < self.cached_preparations.count() {
             var cached = self.cached_preparations[index]
             if cached.matches(width, height, framed) {
-                if cached.revision != self.current_revision {
+                if cached.revision != revision {
                     self.update_prepared(cached.value, width, height, framed)
-                    cached.revision = self.current_revision
+                    cached.revision = revision
                 }
                 return cached.value
             }
@@ -210,7 +217,7 @@ public class Canvas {
             width,
             height,
             framed,
-            self.current_revision
+            revision
         ))
         return value
     }

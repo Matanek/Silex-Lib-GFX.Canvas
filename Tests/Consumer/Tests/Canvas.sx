@@ -1,4 +1,5 @@
 use GFX.Canvas
+use GFX.Assets.Image
 use GFX.Color
 use GFX.Input
 use GFX.Font as VectorFont
@@ -66,6 +67,38 @@ test "consume the public Canvas surface" {
     var shared_unbounded = drawing.prepared()
     assert(shared_prepared.geometry().vertex_count() == 6)
     assert(shared_unbounded.geometry().vertex_count() == 6)
+}
+
+test "consume retained image fills through public Canvas and Assets APIs" {
+    var paint = Canvas.ImagePaint(Image.rgba8(2, 1, [
+        255, 0, 0, 255,
+        0, 0, 255, 255
+    ]))
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Rect(Math.Vec2(), Math.Vec2(8.0, 4.0)),
+            Canvas.Fill.image(
+                paint,
+                Canvas.ImageMapping.fit(
+                    frame:Canvas.Rect(Math.Vec2(), Math.Vec2(8.0, 4.0)),
+                    mode:Canvas.ImageFit.cover,
+                    sampling:Canvas.ImageSampling.smooth
+                )
+            )
+        )
+    })
+    assert(!drawing.vector_geometry_compatible())
+    let raster = drawing.rasterize(8, 4)
+    assert(raster.width() == 8)
+    var content = drawing.snapshot(8, 4).content()
+    match content[0] {
+        image(value) => {
+            assert(value.geometry().vertex_count() == 6)
+            assert(value.paint().revision() == 1)
+        }
+        else => { assert(false) }
+    }
 }
 
 test "consume the interactive Canvas session contract" {

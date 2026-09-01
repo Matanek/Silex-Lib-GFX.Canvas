@@ -1,5 +1,8 @@
 use GFX.Assets.Image
 use GFX.Canvas.Geometry.Mesh
+use GFX.Canvas.ImagePaint.ImageMapping
+use GFX.Canvas.ImagePaint.ImagePaint
+use GFX.Canvas.ImagePaint.validate_image_mapping
 use GFX.Canvas.Command
 use GFX.Canvas.Command.Layer
 use GFX.Canvas.Effects.Effect
@@ -37,8 +40,28 @@ public class LayerContent {
     func content() Content[] { return self.ordered }
 }
 
+// Complete retained intent for a vector mask filled from an ImagePaint. The
+// mesh keeps its analytic distance coordinates; mapping remains separate.
+public class ImageContent {
+    private let retained_geometry:Mesh
+    private var retained_paint:ImagePaint
+    private let retained_mapping:ImageMapping
+
+    module init(geometry:Mesh, paint:ImagePaint, mapping:ImageMapping) {
+        let region = validate_image_mapping(paint, mapping)
+        self.retained_geometry = geometry
+        self.retained_paint = paint
+        self.retained_mapping = mapping
+    }
+
+    func geometry() Mesh { return self.retained_geometry }
+    func paint() ImagePaint { return self.retained_paint }
+    func mapping() ImageMapping { return self.retained_mapping }
+}
+
 public enum Content {
     geometry(Mesh)
+    image(ImageContent)
     text(TextLayer)
     layer(LayerContent)
 }
@@ -124,7 +147,7 @@ public class Snapshot {
     func vector_geometry_compatible() bool { return self.retained_geometry_compatible }
     func geometry() Mesh {
         if !self.retained_geometry_compatible {
-            panic("GFX.Canvas snapshot geometry cannot represent layered effects; use content")
+            panic("GFX.Canvas snapshot geometry cannot represent effects or image fills; use content")
         }
         return self.retained_geometry
     }
@@ -349,6 +372,39 @@ func ordered_content(
                 var nested = value.commands()
                 var nested_content = ordered_content(nested, text_layers, text_index)
                 result.append(Content.layer(LayerContent(value, nested_content)))
+            }
+            fill_rect(value) => {
+                if value.style.is_image() {
+                    result.append(Content.image(ImageContent(
+                        Vectorizer.command_geometry(command),
+                        value.style.image_paint(),
+                        value.style.image_mapping()
+                    )))
+                } else {
+                    result.append(Content.geometry(Vectorizer.command_geometry(command)))
+                }
+            }
+            fill_circle(value) => {
+                if value.style.is_image() {
+                    result.append(Content.image(ImageContent(
+                        Vectorizer.command_geometry(command),
+                        value.style.image_paint(),
+                        value.style.image_mapping()
+                    )))
+                } else {
+                    result.append(Content.geometry(Vectorizer.command_geometry(command)))
+                }
+            }
+            fill_path(value) => {
+                if value.style.is_image() {
+                    result.append(Content.image(ImageContent(
+                        Vectorizer.command_geometry(command),
+                        value.style.image_paint(),
+                        value.style.image_mapping()
+                    )))
+                } else {
+                    result.append(Content.geometry(Vectorizer.command_geometry(command)))
+                }
             }
             else => { result.append(Content.geometry(Vectorizer.command_geometry(command))) }
         }

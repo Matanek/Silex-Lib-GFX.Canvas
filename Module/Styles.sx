@@ -1,5 +1,8 @@
 use GFX.Color
 use GFX.Canvas.Font.Font
+use GFX.Canvas.ImagePaint.ImageMapping
+use GFX.Canvas.ImagePaint.ImagePaint
+use GFX.Canvas.ImagePaint.same_image_mapping
 use GFX.Font as VectorFont
 use STD.Math
 
@@ -57,6 +60,8 @@ public struct Brush {
 
 public struct Fill {
     private var current_brush:Brush
+    private var current_image:ImagePaint? = null
+    private var current_mapping:ImageMapping? = null
 
     init(color:Color) { self.current_brush = Brush.solid(color) }
 
@@ -67,7 +72,46 @@ public struct Fill {
         return fill
     }
 
-    func brush() Brush { return self.current_brush }
+    static func image(paint:ImagePaint, mapping:ImageMapping) Fill {
+        var fill = Fill(Color.white())
+        fill.current_image = paint
+        fill.current_mapping = mapping
+        return fill
+    }
+
+    func is_image() bool { return self.current_image != null }
+    func image_paint() ImagePaint {
+        if let paint = self.current_image { return paint }
+        panic("GFX.Canvas fill does not contain an ImagePaint")
+    }
+    func image_mapping() ImageMapping {
+        if let mapping = self.current_mapping { return mapping }
+        panic("GFX.Canvas fill does not contain an ImageMapping")
+    }
+    func brush() Brush {
+        if self.is_image() {
+            panic("GFX.Canvas image fill does not have a standalone Brush")
+        }
+        return self.current_brush
+    }
+    module func vector_brush() Brush { return self.current_brush }
+}
+
+module func same_fill(first:@Fill, second:@Fill) bool {
+    if first.is_image() != second.is_image() { return false }
+    if !first.is_image() { return first.vector_brush() == second.vector_brush() }
+    var first_paint = first.image_paint()
+    var second_paint = second.image_paint()
+    let first_mapping = first.image_mapping()
+    let second_mapping = second.image_mapping()
+    return first_paint.id() == second_paint.id() &&
+        same_image_mapping(first_mapping, second_mapping)
+}
+
+module func fill_resource_revision(fill:@Fill) int {
+    if !fill.is_image() { return 0 }
+    var paint = fill.image_paint()
+    return paint.id() * 65537 + paint.revision()
 }
 
 public enum StrokeCap { butt; round; square }

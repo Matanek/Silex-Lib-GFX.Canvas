@@ -49,6 +49,57 @@ overscan line alive until its last visible pixel while preventing it from
 bleeding into adjacent controls. The clip is placement state, not font or
 shaping-cache state.
 
+## Fill a shape with an image
+
+`ImagePaint` retains an independent image with a stable identity and revision.
+Mapping remains separate from the contour: an analytic rectangle therefore
+keeps its six vertices and distance coordinates while a renderer also receives
+the image source and its logical coordinate system.
+
+```sx
+use GFX.Assets.Image
+use GFX.Canvas
+use STD.Math
+
+var portrait = Canvas.ImagePaint(Image.rgba8(2, 1, [
+    255, 96, 64, 255,
+    64, 128, 255, 255
+]))
+let frame = Canvas.Rect(Math.Vec2(8.0), Math.Vec2(96.0, 64.0))
+
+var drawing = Canvas()
+drawing.paint(func(painter:&Canvas.Painter) {
+    painter.fill(
+        frame,
+        Canvas.Fill.image(
+            portrait,
+            Canvas.ImageMapping.fit(
+                frame:frame,
+                mode:Canvas.ImageFit.cover,
+                alignment:Math.Vec2(0.5),
+                sampling:Canvas.ImageSampling.smooth
+            )
+        )
+    )
+})
+```
+
+`stretch` maps source and destination edges, `contain` preserves the whole
+image with transparent bars, and `cover` fills the frame by cropping it.
+`ImageMapping.tile(origin, texel_size, ...)` instead repeats the selected
+source region on both axes, including before a negative origin. Coordinates
+follow Canvas and images: top-left origin with Y down. An optional
+`Image.Region` selects a half-open pixel rectangle and is validated against the
+current image before preparation or rasterization.
+
+`portrait.replace(next_image)` preserves identity, advances the revision, and
+invalidates preparations that use it. A region that no longer fits fails
+explicitly on the next use. `Canvas.rasterize`, `Surface.draw`, and Scene2D use
+the same mapping. For an alternative renderer, `Prepared.content()` exposes an
+`image` value containing the mask mesh, `ImagePaint`, and `ImageMapping`. Such
+a fill makes `vector_geometry_compatible()` false because a mesh alone cannot
+carry the image source without repurposing its analytic coordinates.
+
 ## Isolate a group and apply effects
 
 `Painter.layer` groups several intentions before applying a shadow, blur, or
@@ -136,7 +187,7 @@ revision of the same Canvas updates those objects in place, so a renderer can
 share the compilation without rebuilding or replacing every component.
 
 `Snapshot.content()` and `Prepared.content()` preserve the general order as
-`geometry`, `text`, and `layer` values. Layer content exposes its effects,
+`geometry`, `image`, `text`, and `layer` values. Layer content exposes its effects,
 bounds, identity, and revision. An alternative renderer can therefore replay
 shapes, text, and groups in author order without trying to reconstruct it from
 an aggregate mesh and a separate text list.

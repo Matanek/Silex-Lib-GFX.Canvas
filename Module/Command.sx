@@ -4,18 +4,20 @@ use GFX.Canvas.Shapes.Circle
 use GFX.Canvas.Shapes.Line
 use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.Styles.Fill
+use GFX.Canvas.Styles.fill_resource_revision
+use GFX.Canvas.Styles.same_fill
 use GFX.Canvas.Styles.Stroke
 use GFX.Canvas.Styles.TextStyle
 use GFX.Canvas.Styles.same_text_style
 use GFX.Canvas.TextBlock.TextBlock
 use STD.Math
 
-public struct FillRect { let shape:Rect; let style:Fill }
+public struct FillRect { let shape:Rect; var style:Fill }
 public struct StrokeRect { let shape:Rect; let style:Stroke }
-public struct FillCircle { let shape:Circle; let style:Fill }
+public struct FillCircle { let shape:Circle; var style:Fill }
 public struct StrokeCircle { let shape:Circle; let style:Stroke }
 public struct StrokeLine { let shape:Line; let style:Stroke }
-public struct FillPath { var shape:Path; let style:Fill }
+public struct FillPath { var shape:Path; var style:Fill }
 public struct StrokePath { var shape:Path; let style:Stroke }
 public struct Text {
     let value:str
@@ -68,7 +70,9 @@ public class Layer {
     }
 
     func id() int { return self.current_identity }
-    func revision() int { return self.current_revision }
+    func revision() int {
+        return self.current_revision + command_resource_revision(self.current_commands)
+    }
     func effects() Effect[] { return self.current_effects }
     func commands() Command[] { return self.current_commands }
     func bounds() Rect? { return self.current_bounds }
@@ -181,12 +185,21 @@ func same_layer(first:@Layer, second:@Layer) bool {
 
 func same_command(first:@Command, second:@Command) bool {
     return match first {
-        fill_rect(left) => match second { fill_rect(right) => left == right; else => false }
+        fill_rect(left) => match second {
+            fill_rect(right) => left.shape == right.shape && same_fill(left.style, right.style)
+            else => false
+        }
         stroke_rect(left) => match second { stroke_rect(right) => left == right; else => false }
-        fill_circle(left) => match second { fill_circle(right) => left == right; else => false }
+        fill_circle(left) => match second {
+            fill_circle(right) => left.shape == right.shape && same_fill(left.style, right.style)
+            else => false
+        }
         stroke_circle(left) => match second { stroke_circle(right) => left == right; else => false }
         stroke_line(left) => match second { stroke_line(right) => left == right; else => false }
-        fill_path(left) => match second { fill_path(right) => left == right; else => false }
+        fill_path(left) => match second {
+            fill_path(right) => left.shape == right.shape && same_fill(left.style, right.style)
+            else => false
+        }
         stroke_path(left) => match second { stroke_path(right) => left == right; else => false }
         text(left) => match second {
             text(right) => same_text_content(left, right) && left.position == right.position &&
@@ -198,4 +211,21 @@ func same_command(first:@Command, second:@Command) bool {
             else => false
         }
     }
+}
+
+module func command_resource_revision(commands:@Command[]) int {
+    var revision = 0
+    for command in commands {
+        match command {
+            fill_rect(value) => { revision += fill_resource_revision(value.style) }
+            fill_circle(value) => { revision += fill_resource_revision(value.style) }
+            fill_path(value) => { revision += fill_resource_revision(value.style) }
+            layer(value) => {
+                var nested = value.commands()
+                revision += command_resource_revision(nested)
+            }
+            else => {}
+        }
+    }
+    return revision
 }

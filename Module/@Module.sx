@@ -10,6 +10,11 @@ public use GFX.Canvas.Effects.ShadowEffect
 public use GFX.Canvas.Font.Font
 public use GFX.Canvas.Geometry.Mesh
 public use GFX.Canvas.Geometry.Vertex
+public use GFX.Canvas.ImagePaint.ImageFit
+public use GFX.Canvas.ImagePaint.ImageMapping
+public use GFX.Canvas.ImagePaint.ImageMappingKind
+public use GFX.Canvas.ImagePaint.ImagePaint
+public use GFX.Canvas.ImagePaint.ImageSampling
 public use GFX.Canvas.Path.Path
 public use GFX.Canvas.Prepared.Prepared
 public use GFX.Canvas.Session.Session
@@ -21,6 +26,7 @@ public use GFX.Canvas.Shapes.Rect
 public use GFX.Canvas.Shapes.Sector
 public use GFX.Canvas.Snapshot.Snapshot
 public use GFX.Canvas.Snapshot.Content
+public use GFX.Canvas.Snapshot.ImageContent
 public use GFX.Canvas.Snapshot.LayerContent
 public use GFX.Canvas.Styles.Brush
 public use GFX.Canvas.Styles.Fill

@@ -41,6 +41,9 @@ func update(commands:@Command[], mesh:&Mesh) {
 func compatible(commands:@Command[]) bool {
     for command in commands {
         match command {
+            fill_rect(value) => { if value.style.is_image() { return false } }
+            fill_circle(value) => { if value.style.is_image() { return false } }
+            fill_path(value) => { if value.style.is_image() { return false } }
             layer(value) => {
                 if value.effects().count() > 0 { return false }
                 var nested = value.commands()
@@ -68,7 +71,7 @@ func append_command(command:@Command, mesh:&Mesh) {
     match command {
             fill_rect(value) => {
                 append_analytic_rect(mesh, value.shape.position, value.shape.size,
-                    value.shape.radius, 0.0, value.style.brush())
+                    value.shape.radius, 0.0, value.style.vector_brush())
             }
             stroke_rect(value) => {
                 append_analytic_rect(mesh, value.shape.position, value.shape.size,
@@ -76,7 +79,7 @@ func append_command(command:@Command, mesh:&Mesh) {
             }
             fill_circle(value) => {
                 append_analytic_circle(mesh, value.shape.center, value.shape.radius,
-                    0.0, value.style.brush())
+                    0.0, value.style.vector_brush())
             }
             stroke_circle(value) => {
                 append_analytic_circle(mesh, value.shape.center, value.shape.radius,
@@ -87,7 +90,7 @@ func append_command(command:@Command, mesh:&Mesh) {
             }
             fill_path(value) => {
                 let line = Rasterizer.flatten(value.shape)
-                append_polygon(mesh, line.points, value.style.brush())
+                append_polygon(mesh, line.points, value.style.vector_brush())
             }
             stroke_path(value) => {
                 let line = Rasterizer.flatten(value.shape)

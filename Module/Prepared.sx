@@ -36,7 +36,7 @@ public class Prepared {
     func vector_geometry_compatible() bool { return self.retained_geometry_compatible }
     func geometry() Mesh {
         if !self.retained_geometry_compatible {
-            panic("GFX.Canvas prepared geometry cannot represent layered effects; use content")
+            panic("GFX.Canvas prepared geometry cannot represent effects or image fills; use content")
         }
         return self.retained_geometry
     }
