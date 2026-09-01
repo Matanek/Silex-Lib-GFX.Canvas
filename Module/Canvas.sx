@@ -1,6 +1,9 @@
 use GFX.Assets.Image
 use GFX.Color
 use GFX.Canvas.Command
+use GFX.Canvas.Command.CommandBuffer
+use GFX.Canvas.Command.Layer
+use GFX.Canvas.Effects.Effect
 use GFX.Canvas.Geometry
 use GFX.Canvas.Path.Path
 use GFX.Canvas.Prepared.Prepared
@@ -41,7 +44,7 @@ class PreparedCache {
 }
 
 public class Canvas {
-    private var current_commands:Command[]
+    private var command_buffer:CommandBuffer
     private var current_revision:int
     private var cached_preparations:PreparedCache[]
     private var cached_snapshot:Snapshot? = null
@@ -51,48 +54,62 @@ public class Canvas {
     private var cached_snapshot_framed:bool = false
 
     init() {
-        self.current_commands = []
+        self.command_buffer = CommandBuffer()
         self.current_revision = 1
         self.cached_preparations = []
     }
 
     func paint(callback:func(&Painter)) Canvas {
-        var painter = Painter(self)
+        let previous_count = self.command_buffer.count()
+        var painter = Painter(self.command_buffer)
         callback(painter)
+        self.current_revision += self.command_buffer.count() - previous_count
         return self
     }
 
     func clear() {
-        self.current_commands.clear()
+        self.command_buffer.reset()
         self.current_revision++
     }
 
     func rasterize(width:int, height:int, background:Color = Color.transparent()) Image {
-        return Rasterizer.rasterize(self.current_commands, width, height, background)
+        var commands = self.command_buffer.values()
+        return Rasterizer.rasterize(commands, width, height, background)
     }
 
     func measure_text(value:str, style:TextStyle = TextStyle()) TextMetrics {
         return Rasterizer.measure_text(value, style)
     }
 
-    func commands() Command[] { return self.current_commands }
+    func commands() Command[] { return self.command_buffer.values() }
     func revision() int { return self.current_revision }
-    func is_empty() bool { return self.current_commands.count() == 0 }
-    func command_count() int { return self.current_commands.count() }
+    func is_empty() bool { return self.command_buffer.count() == 0 }
+    func command_count() int { return self.command_buffer.count() }
+
+    func vector_geometry_compatible() bool {
+        var commands = self.command_buffer.values()
+        return Vectorizer.compatible(commands)
+    }
 
     func vector_geometry() Geometry.Mesh {
-        return Vectorizer.geometry(self.current_commands)
+        var commands = self.command_buffer.values()
+        if !Vectorizer.compatible(commands) {
+            panic("GFX.Canvas vector geometry cannot represent layered effects")
+        }
+        return Vectorizer.geometry(commands)
     }
 
     func prepare(prepared:&Prepared) {
-        prepared.update(self.current_commands)
+        var commands = self.command_buffer.values()
+        prepared.update(commands)
     }
 
     func prepare(prepared:&Prepared, width:int, height:int) {
         if width <= 0 || height <= 0 {
             panic("GFX.Canvas prepared dimensions must be positive")
         }
-        prepared.update(self.current_commands, width, height)
+        var commands = self.command_buffer.values()
+        prepared.update(commands, width, height)
     }
 
     // Returns one incrementally maintained retained compilation for each
@@ -112,7 +129,8 @@ public class Canvas {
         {
             if let snapshot = self.cached_snapshot { return snapshot }
         }
-        var snapshot = Snapshot(self.vector_geometry(), self.current_commands)
+        var commands = self.command_buffer.values()
+        var snapshot = Snapshot(Vectorizer.geometry(commands), commands)
         self.cached_snapshot = snapshot
         self.cached_snapshot_revision = self.current_revision
         self.cached_snapshot_width = 0
@@ -132,8 +150,8 @@ public class Canvas {
             if let snapshot = self.cached_snapshot { return snapshot }
         }
         var snapshot = Snapshot(
-            self.vector_geometry(),
-            self.current_commands,
+            Vectorizer.geometry(self.command_buffer.values()),
+            self.command_buffer.values(),
             width,
             height
         )
@@ -163,19 +181,13 @@ public class Canvas {
     }
 
     module func text_image(width:int, height:int) Image {
-        return Rasterizer.rasterize_text(self.current_commands, width, height)
+        var commands = self.command_buffer.values()
+        return Rasterizer.rasterize_text(commands, width, height)
     }
 
     module func has_text() bool {
-        for command in self.current_commands {
-            match command { text(value) => { return true }; else => {} }
-        }
-        return false
-    }
-
-    module func append(command:Command) {
-        self.current_commands.append(command)
-        self.current_revision++
+        var commands = self.command_buffer.values()
+        return commands_have_text(commands)
     }
 
     private func cached_prepared(width:int, height:int, framed:bool) Prepared {
@@ -218,28 +230,46 @@ public class Canvas {
 }
 
 public struct Painter {
-    private var canvas:Canvas
+    private var commands:CommandBuffer
 
-    module init(canvas:Canvas) { self.canvas = canvas }
+    module init(commands:CommandBuffer) { self.commands = commands }
+
+    func layer(effects:Effect[], callback:func(&Painter)) {
+        let index = self.commands.count()
+        var previous = self.commands.previous_layer(index)
+        var previous_commands:Command[] = []
+        if let retained = previous { previous_commands = retained.commands() }
+        var nested = CommandBuffer(previous_commands)
+        var painter = Painter(nested)
+        callback(painter)
+        var commands = nested.values()
+        let bounds = Rasterizer.logical_bounds(commands, effects)
+        self.commands.append(Command.layer(Layer.retained(
+            effects,
+            commands,
+            bounds,
+            previous
+        )))
+    }
 
     func fill(shape:Rect, style:Fill) {
         validate_rect(shape)
-        self.canvas.append(Command.fill_rect(Command.FillRect(shape:shape, style:style)))
+        self.commands.append(Command.fill_rect(Command.FillRect(shape:shape, style:style)))
     }
 
     func stroke(shape:Rect, style:Stroke) {
         validate_rect(shape)
-        self.canvas.append(Command.stroke_rect(Command.StrokeRect(shape:shape, style:style)))
+        self.commands.append(Command.stroke_rect(Command.StrokeRect(shape:shape, style:style)))
     }
 
     func fill(shape:Circle, style:Fill) {
         validate_circle(shape)
-        self.canvas.append(Command.fill_circle(Command.FillCircle(shape:shape, style:style)))
+        self.commands.append(Command.fill_circle(Command.FillCircle(shape:shape, style:style)))
     }
 
     func stroke(shape:Circle, style:Stroke) {
         validate_circle(shape)
-        self.canvas.append(Command.stroke_circle(Command.StrokeCircle(shape:shape, style:style)))
+        self.commands.append(Command.stroke_circle(Command.StrokeCircle(shape:shape, style:style)))
     }
 
     func fill(shape:Ellipse, style:Fill) {
@@ -278,17 +308,17 @@ public struct Painter {
     }
 
     func stroke(shape:Line, style:Stroke) {
-        self.canvas.append(Command.stroke_line(Command.StrokeLine(shape:shape, style:style)))
+        self.commands.append(Command.stroke_line(Command.StrokeLine(shape:shape, style:style)))
     }
 
     func fill(shape:Path, style:Fill) {
         if shape.is_empty() { panic("GFX.Canvas cannot fill an empty path") }
-        self.canvas.append(Command.fill_path(Command.FillPath(shape:shape, style:style)))
+        self.commands.append(Command.fill_path(Command.FillPath(shape:shape, style:style)))
     }
 
     func stroke(shape:Path, style:Stroke) {
         if shape.is_empty() { panic("GFX.Canvas cannot stroke an empty path") }
-        self.canvas.append(Command.stroke_path(Command.StrokePath(shape:shape, style:style)))
+        self.commands.append(Command.stroke_path(Command.StrokePath(shape:shape, style:style)))
     }
 
     func text(
@@ -298,7 +328,7 @@ public struct Painter {
         clip:Rect? = null
     ) {
         if let bounds = clip { validate_text_clip(bounds) }
-        self.canvas.append(Command.text(Command.Text(
+        self.commands.append(Command.text(Command.Text(
             value:value,
             position:position,
             style:style,
@@ -312,7 +342,7 @@ public struct Painter {
         clip:Rect? = null
     ) {
         if let bounds = clip { validate_text_clip(bounds) }
-        self.canvas.append(Command.text(Command.Text(
+        self.commands.append(Command.text(Command.Text(
             value:block.value(),
             position:position,
             style:block.style(),
@@ -323,6 +353,20 @@ public struct Painter {
         )))
     }
 
+}
+
+func commands_have_text(commands:@Command[]) bool {
+    for command in commands {
+        match command {
+            text(value) => { return true }
+            layer(value) => {
+                var nested = value.commands()
+                if commands_have_text(nested) { return true }
+            }
+            else => {}
+        }
+    }
+    return false
 }
 
 func validate_text_clip(shape:Rect) {

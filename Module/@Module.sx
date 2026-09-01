@@ -1,6 +1,12 @@
 public use GFX.Canvas.Canvas.Canvas
 public use GFX.Canvas.Canvas.Painter
 public use GFX.Canvas.Command.Command
+public use GFX.Canvas.Command.Layer
+public use GFX.Canvas.Effects.BlurEffect
+public use GFX.Canvas.Effects.Effect
+public use GFX.Canvas.Effects.EffectValue
+public use GFX.Canvas.Effects.OpacityEffect
+public use GFX.Canvas.Effects.ShadowEffect
 public use GFX.Canvas.Font.Font
 public use GFX.Canvas.Geometry.Mesh
 public use GFX.Canvas.Geometry.Vertex
@@ -14,6 +20,8 @@ public use GFX.Canvas.Shapes.Line
 public use GFX.Canvas.Shapes.Rect
 public use GFX.Canvas.Shapes.Sector
 public use GFX.Canvas.Snapshot.Snapshot
+public use GFX.Canvas.Snapshot.Content
+public use GFX.Canvas.Snapshot.LayerContent
 public use GFX.Canvas.Styles.Brush
 public use GFX.Canvas.Styles.Fill
 public use GFX.Canvas.Styles.Stroke

@@ -9,6 +9,7 @@ use GFX.Canvas.Styles.Stroke
 use GFX.Canvas.Styles.TextAlignment
 use GFX.Canvas.Styles.TextStyle
 use GFX.Canvas.Font.Font
+use GFX.Canvas.Effects.Effect
 use GFX.Canvas.TextBlock.TextBlock
 use STD.Math
 
@@ -31,6 +32,50 @@ test "paint and clear a canvas without SDL or a renderer" {
     canvas.clear()
     assert(canvas.is_empty())
     assert(canvas.revision() == 4)
+}
+
+test "retain unchanged sibling layer identities and revisions" {
+    var canvas = Canvas()
+    canvas.paint(func(painter:&Painter) {
+        painter.layer([Effect.opacity(0.8)], func(layer:&Painter) {
+            layer.fill(Rect(Math.Vec2(2.0), Math.Vec2(8.0)), Fill.solid(Color.red_500()))
+        })
+        painter.layer([Effect.blur(2.0)], func(layer:&Painter) {
+            layer.fill(Rect(Math.Vec2(16.0, 2.0), Math.Vec2(8.0)), Fill.solid(Color.blue_500()))
+        })
+    })
+    var before = canvas.commands()
+    var first_id = 0
+    var first_revision = 0
+    var second_id = 0
+    var second_revision = 0
+    match before[0] { layer(value) => { first_id = value.id(); first_revision = value.revision() }; else => {} }
+    match before[1] { layer(value) => { second_id = value.id(); second_revision = value.revision() }; else => {} }
+
+    canvas.clear()
+    canvas.paint(func(painter:&Painter) {
+        painter.layer([Effect.opacity(0.8)], func(layer:&Painter) {
+            layer.fill(Rect(Math.Vec2(2.0), Math.Vec2(8.0)), Fill.solid(Color.red_500()))
+        })
+        painter.layer([Effect.blur(3.0)], func(layer:&Painter) {
+            layer.fill(Rect(Math.Vec2(16.0, 2.0), Math.Vec2(8.0)), Fill.solid(Color.blue_500()))
+        })
+    })
+    var after = canvas.commands()
+    match after[0] {
+        layer(value) => {
+            assert(value.id() == first_id)
+            assert(value.revision() == first_revision)
+        }
+        else => { assert(false) }
+    }
+    match after[1] {
+        layer(value) => {
+            assert(value.id() == second_id)
+            assert(value.revision() == second_revision + 1)
+        }
+        else => { assert(false) }
+    }
 }
 
 test "reuse cached text while vector geometry changes" {

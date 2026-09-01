@@ -1,6 +1,7 @@
 use GFX.Canvas.Command
 use GFX.Canvas.Geometry.Mesh
 use GFX.Canvas.Snapshot.Snapshot
+use GFX.Canvas.Snapshot.Content
 use GFX.Canvas.Snapshot.retained_text_snapshot
 use GFX.Canvas.Snapshot.retained_unbounded_text_snapshot
 use GFX.Canvas.TextLayer.TextLayer
@@ -18,6 +19,7 @@ public class Prepared {
     private var staging_geometry:Mesh
     private var retained_text:Snapshot
     private var retained_has_text:bool
+    private var retained_geometry_compatible:bool
 
     init() {
         self.current_revision = 0
@@ -26,13 +28,21 @@ public class Prepared {
         self.staging_geometry = Mesh()
         self.retained_text = Snapshot()
         self.retained_has_text = false
+        self.retained_geometry_compatible = true
     }
 
     func revision() int { return self.current_revision }
     func geometry_revision() int { return self.current_geometry_revision }
-    func geometry() Mesh { return self.retained_geometry }
+    func vector_geometry_compatible() bool { return self.retained_geometry_compatible }
+    func geometry() Mesh {
+        if !self.retained_geometry_compatible {
+            panic("GFX.Canvas prepared geometry cannot represent layered effects; use content")
+        }
+        return self.retained_geometry
+    }
     func has_text() bool { return self.retained_has_text }
     func text_layers() TextLayer[] { return self.retained_text.text_layers() }
+    func content() Content[] { return self.retained_text.content() }
 
     package func update(commands:@Command[]) {
         var text = retained_unbounded_text_snapshot(commands)
@@ -45,6 +55,7 @@ public class Prepared {
     }
 
     private func commit(commands:@Command[], text:Snapshot) {
+        self.retained_geometry_compatible = Vectorizer.compatible(commands)
         Vectorizer.update(commands, self.staging_geometry)
         if !same_mesh(self.retained_geometry, self.staging_geometry) {
             var previous = self.retained_geometry

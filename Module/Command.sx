@@ -1,10 +1,12 @@
 use GFX.Canvas.Path.Path
+use GFX.Canvas.Effects.Effect
 use GFX.Canvas.Shapes.Circle
 use GFX.Canvas.Shapes.Line
 use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.Styles.Fill
 use GFX.Canvas.Styles.Stroke
 use GFX.Canvas.Styles.TextStyle
+use GFX.Canvas.Styles.same_text_style
 use GFX.Canvas.TextBlock.TextBlock
 use STD.Math
 
@@ -43,6 +45,90 @@ public struct Text {
     }
 }
 
+public class Layer {
+    private static var next_identity:int = 1
+    private let current_identity:int
+    private let current_revision:int
+    private let current_effects:Effect[]
+    private var current_commands:Command[]
+    private let current_bounds:Rect?
+
+    private init(
+        identity:int,
+        revision:int,
+        effects:Effect[],
+        commands:Command[],
+        bounds:Rect?
+    ) {
+        self.current_identity = identity
+        self.current_revision = revision
+        self.current_effects = effects
+        self.current_commands = commands
+        self.current_bounds = bounds
+    }
+
+    func id() int { return self.current_identity }
+    func revision() int { return self.current_revision }
+    func effects() Effect[] { return self.current_effects }
+    func commands() Command[] { return self.current_commands }
+    func bounds() Rect? { return self.current_bounds }
+
+    package static func retained(
+        effects:Effect[],
+        commands:Command[],
+        bounds:Rect?,
+        previous:Layer? = null
+    ) Layer {
+        if var retained = previous {
+            if same_effects(effects, retained.current_effects) &&
+                same_commands(commands, retained.current_commands)
+            {
+                return retained
+            }
+            return Layer(
+                retained.current_identity,
+                retained.current_revision + 1,
+                effects,
+                commands,
+                bounds
+            )
+        }
+        let identity = Layer.next_identity
+        Layer.next_identity++
+        return Layer(identity, 1, effects, commands, bounds)
+    }
+}
+
+package class CommandBuffer {
+    private var current:Command[]
+    private var previous:Command[]
+
+    init(previous:Command[] = []) {
+        self.current = []
+        self.previous = previous
+    }
+
+    func count() int { return self.current.count() }
+    func values() Command[] { return self.current }
+    func append(command:Command) { self.current.append(command) }
+
+    func reset() {
+        self.previous = self.current
+        self.current = []
+    }
+
+    func previous_layer(index:int) Layer? {
+        if index < 0 || index >= self.previous.count() { return null }
+        match self.previous[index] {
+            layer(value) => { return optional_layer(value) }
+            else => {}
+        }
+        return null
+    }
+}
+
+func optional_layer(value:Layer) Layer? { return value }
+
 module func same_text_content(first:@Text, second:@Text) bool {
     if first.block_identity > 0 || second.block_identity > 0 {
         return first.block_identity > 0 &&
@@ -61,4 +147,55 @@ public enum Command {
     fill_path(FillPath)
     stroke_path(StrokePath)
     text(Text)
+    layer(Layer)
+}
+
+func same_effects(first:@Effect[], second:@Effect[]) bool {
+    if first.count() != second.count() { return false }
+    var index = 0
+    while index < first.count() {
+        if first[index] != second[index] { return false }
+        index++
+    }
+    return true
+}
+
+func same_commands(first:@Command[], second:@Command[]) bool {
+    if first.count() != second.count() { return false }
+    var index = 0
+    while index < first.count() {
+        if !same_command(first[index], second[index]) { return false }
+        index++
+    }
+    return true
+}
+
+func same_layer(first:@Layer, second:@Layer) bool {
+    let first_effects = first.effects()
+    let second_effects = second.effects()
+    var first_commands = first.commands()
+    var second_commands = second.commands()
+    return same_effects(first_effects, second_effects) &&
+        same_commands(first_commands, second_commands)
+}
+
+func same_command(first:@Command, second:@Command) bool {
+    return match first {
+        fill_rect(left) => match second { fill_rect(right) => left == right; else => false }
+        stroke_rect(left) => match second { stroke_rect(right) => left == right; else => false }
+        fill_circle(left) => match second { fill_circle(right) => left == right; else => false }
+        stroke_circle(left) => match second { stroke_circle(right) => left == right; else => false }
+        stroke_line(left) => match second { stroke_line(right) => left == right; else => false }
+        fill_path(left) => match second { fill_path(right) => left == right; else => false }
+        stroke_path(left) => match second { stroke_path(right) => left == right; else => false }
+        text(left) => match second {
+            text(right) => same_text_content(left, right) && left.position == right.position &&
+                same_text_style(left.style, right.style) && left.clip == right.clip
+            else => false
+        }
+        layer(left) => match second {
+            layer(right) => same_layer(left, right)
+            else => false
+        }
+    }
 }

@@ -1,8 +1,8 @@
 # Draw with GFX.Canvas
 
 `GFX.Canvas` describes 2D drawing intentions without imposing a renderer. A
-`Canvas` records paths, analytic shapes, fills, strokes, and text, then turns
-them into vector geometry or an RGBA image.
+`Canvas` records paths, analytic shapes, fills, strokes, text, and groups with
+effects, then turns them into retained content or an RGBA image.
 
 [Lire cette documentation en français.](../FR/README.md)
 
@@ -12,7 +12,7 @@ them into vector geometry or an RGBA image.
 silex install GFX.Canvas
 ```
 
-GFX.Canvas requires Silex 0.39.0 or newer.
+GFX.Canvas requires Silex 0.43.0 or newer.
 
 ## Record and rasterize a drawing
 
@@ -49,22 +49,75 @@ overscan line alive until its last visible pixel while preventing it from
 bleeding into adjacent controls. The clip is placement state, not font or
 shaping-cache state.
 
+## Isolate a group and apply effects
+
+`Painter.layer` groups several intentions before applying a shadow, blur, or
+opacity. The shadow below is produced from the shape and text together: the
+text remains shaped by `GFX.Font` and retains its `GlyphRun`, vector outlines,
+and hinted coverage.
+
+```sx
+use GFX.Canvas
+use GFX.Color
+use STD.Math
+
+var card = Canvas()
+card.paint(func(painter:&Canvas.Painter) {
+    painter.layer(
+        [Canvas.Effect.shadow(
+            offset:Math.Vec2(0.0, 6.0),
+            radius:12.0,
+            color:Color.black().with_alpha(0.25)
+        )],
+        func(layer:&Canvas.Painter) {
+            layer.fill(
+                Canvas.Rect(Math.Vec2(8.0), Math.Vec2(160.0, 56.0), 10.0),
+                Canvas.Fill.solid(Color.slate_800())
+            )
+            layer.text(
+                "Project",
+                Math.Vec2(24.0, 18.0),
+                Canvas.TextStyle(size:20.0, color:Color.white())
+            )
+        }
+    )
+})
+
+let image = card.rasterize(184, 80)
+```
+
+Effects in one layer are evaluated from left to right. For example,
+`[blur, shadow, opacity]` first blurs the group, computes the shadow from its
+blurred alpha, then modulates both content and shadow. Nested layers are fully
+evaluated from the inside out. Blur and composition use premultiplied alpha so
+transparent edges do not acquire stray colors.
+
+A layer's public bounds include its shapes, text ink, and effect expansion. A
+framed rasterization clips only the final root result. A layer does not yet
+have a local clip; inner shadows, artistic blend modes, and arbitrary filters
+are outside this surface.
+
 ## Reuse drawing intentions
 
-`Canvas.commands()` returns a copy of public commands, `Path.steps()` exposes
-segments, and `Canvas.vector_geometry()` produces a GPU-independent mesh. An
-extension can therefore interpret intentions, tessellate them itself, or reuse
-the supplied tessellation.
+`Canvas.commands()` returns a faithful copy of public commands, including
+nested layers, and `Path.steps()` exposes segments. An extension can therefore
+interpret intentions without knowing about renderer caches.
 
 ```sx
 for command in drawing.commands() {
     match command {
         fill_rect(value) => { print("rectangle") }
         text(value) => { print(value.value) }
+        layer(value) => { print("layer $(value.id()), revision $(value.revision())") }
         else => {}
     }
 }
 ```
+
+`Canvas.vector_geometry_compatible()` reports whether the drawing can be
+faithfully described by a mesh alone. `Canvas.vector_geometry()` produces that
+mesh when the answer is true and explicitly refuses a Canvas whose effects
+require raster composition; it never silently drops an effect.
 
 `Canvas.snapshot()` preserves geometry in its local coordinates without
 inventing a drawing rectangle. Every text layer computes its own coverage,
@@ -81,6 +134,12 @@ shared by every placement of that drawing;
 `drawing.prepared(width, height)` retains one for each frame size. A later
 revision of the same Canvas updates those objects in place, so a renderer can
 share the compilation without rebuilding or replacing every component.
+
+`Snapshot.content()` and `Prepared.content()` preserve the general order as
+`geometry`, `text`, and `layer` values. Layer content exposes its effects,
+bounds, identity, and revision. An alternative renderer can therefore replay
+shapes, text, and groups in author order without trying to reconstruct it from
+an aggregate mesh and a separate text list.
 
 ```sx
 var prepared = drawing.prepared()

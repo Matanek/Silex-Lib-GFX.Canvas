@@ -66,6 +66,150 @@ test "rasterize one drawing into an RGBA image" {
     assert(metrics.height > 0.0)
 }
 
+func count_visible(pixels:@uint8[]) int {
+    var result = 0
+    var index = 3
+    while index < pixels.count() {
+        if pixels[index] > 0 { result++ }
+        index += 4
+    }
+    return result
+}
+
+func maximum_premultiplied_difference(first:@uint8[], second:@uint8[]) int {
+    assert(first.count() == second.count())
+    var maximum = 0
+    var index = 0
+    while index < first.count() {
+        let left_alpha = first[index + 3] as int
+        let right_alpha = second[index + 3] as int
+        var channel = 0
+        while channel < 4 {
+            var left = left_alpha
+            var right = right_alpha
+            if channel < 3 {
+                left = (first[index + channel] as int * left_alpha + 127) / 255
+                right = (second[index + channel] as int * right_alpha + 127) / 255
+            }
+            var difference = right - left
+            if left >= right { difference = left - right }
+            if difference > maximum { maximum = difference }
+            channel++
+        }
+        index += 4
+    }
+    return maximum
+}
+
+test "apply portable effects left to right in premultiplied alpha" {
+    var opacity = Canvas()
+    opacity.paint(func(painter:&Canvas.Painter) {
+        painter.layer([Canvas.Effect.opacity(0.5)], func(layer:&Canvas.Painter) {
+            layer.fill(
+                Canvas.Rect(Math.Vec2(4.0), Math.Vec2(8.0)),
+                Canvas.Fill.solid(Color.red_500())
+            )
+        })
+    })
+    let faded = opacity.rasterize(20, 20).pixels()
+    let center = (8 * 20 + 8) * 4
+    assert(faded[center] >= 249)
+    assert(faded[center + 3] >= 126 && faded[center + 3] <= 129)
+
+    var blur_then_shadow = Canvas()
+    blur_then_shadow.paint(func(painter:&Canvas.Painter) {
+        painter.layer([
+            Canvas.Effect.blur(2.0),
+            Canvas.Effect.shadow(Math.Vec2(4.0, 1.0), 2.0, Color.black().with_alpha(0.7))
+        ], func(layer:&Canvas.Painter) {
+            layer.fill(Canvas.Rect(Math.Vec2(6.0), Math.Vec2(6.0)), Canvas.Fill.solid(Color.white()))
+        })
+    })
+    var shadow_then_blur = Canvas()
+    shadow_then_blur.paint(func(painter:&Canvas.Painter) {
+        painter.layer([
+            Canvas.Effect.shadow(Math.Vec2(4.0, 1.0), 2.0, Color.black().with_alpha(0.7)),
+            Canvas.Effect.blur(2.0)
+        ], func(layer:&Canvas.Painter) {
+            layer.fill(Canvas.Rect(Math.Vec2(6.0), Math.Vec2(6.0)), Canvas.Fill.solid(Color.white()))
+        })
+    })
+    assert(blur_then_shadow.rasterize(24, 20).packed_pixels() !=
+        shadow_then_blur.rasterize(24, 20).packed_pixels())
+}
+
+test "compose nested effects inside out and preserve transparent edges" {
+    var nested = Canvas()
+    nested.paint(func(painter:&Canvas.Painter) {
+        painter.layer([
+            Canvas.Effect.shadow(Math.Vec2(3.0, 2.0), 2.0, Color.black().with_alpha(0.6))
+        ], func(outer:&Canvas.Painter) {
+            outer.layer([Canvas.Effect.blur(2.0)], func(inner:&Canvas.Painter) {
+                inner.fill(
+                    Canvas.Rect(Math.Vec2(7.0), Math.Vec2(6.0)),
+                    Canvas.Fill.solid(Color.bytes(255, 0, 0))
+                )
+            })
+        })
+    })
+    var flat = Canvas()
+    flat.paint(func(painter:&Canvas.Painter) {
+        painter.layer([
+            Canvas.Effect.blur(2.0),
+            Canvas.Effect.shadow(Math.Vec2(3.0, 2.0), 2.0, Color.black().with_alpha(0.6))
+        ], func(layer:&Canvas.Painter) {
+            layer.fill(
+                Canvas.Rect(Math.Vec2(7.0), Math.Vec2(6.0)),
+                Canvas.Fill.solid(Color.bytes(255, 0, 0))
+            )
+        })
+    })
+    let nested_pixels = nested.rasterize(24, 20).pixels()
+    let flat_pixels = flat.rasterize(24, 20).pixels()
+    assert(maximum_premultiplied_difference(nested_pixels, flat_pixels) <= 3)
+
+    let pixels = flat_pixels
+    var index = 0
+    while index < pixels.count() {
+        if pixels[index + 3] > 0 && pixels[index] > 0 {
+            assert(pixels[index + 1] <= 2)
+            assert(pixels[index + 2] <= 2)
+        }
+        index += 4
+    }
+}
+
+test "retain shadows from shape and GFX.Font text outside the root origin" {
+    var shape = Canvas()
+    shape.paint(func(painter:&Canvas.Painter) {
+        painter.layer([
+            Canvas.Effect.shadow(Math.Vec2(7.0, 0.0), 1.0, Color.black())
+        ], func(layer:&Canvas.Painter) {
+            layer.fill(
+                Canvas.Rect(Math.Vec2(-5.0, 4.0), Math.Vec2(7.0, 6.0)),
+                Canvas.Fill.solid(Color.white())
+            )
+        })
+    })
+    let shifted = shape.rasterize(16, 16).pixels()
+    assert(shifted[(6 * 16 + 5) * 4 + 3] > 0)
+
+    var plain_text = Canvas()
+    plain_text.paint(func(painter:&Canvas.Painter) {
+        painter.text("GFX", Math.Vec2(2.0), Canvas.TextStyle(size:12.0, color:Color.white()))
+    })
+    var shadowed_text = Canvas()
+    shadowed_text.paint(func(painter:&Canvas.Painter) {
+        painter.layer([
+            Canvas.Effect.shadow(Math.Vec2(4.0, 3.0), 2.0, Color.black().with_alpha(0.8))
+        ], func(layer:&Canvas.Painter) {
+            layer.text("GFX", Math.Vec2(2.0), Canvas.TextStyle(size:12.0, color:Color.white()))
+        })
+    })
+    assert(count_visible(shadowed_text.rasterize(40, 24).pixels()) >
+        count_visible(plain_text.rasterize(40, 24).pixels()))
+}
+
 test "use the GFX default font when TextStyle omits a font" {
     var drawing = Canvas()
     drawing.paint(func(painter:&Canvas.Painter) {

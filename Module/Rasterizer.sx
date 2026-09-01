@@ -2,6 +2,7 @@ use GFX.Assets.Image
 use GFX.Canvas.PackedStorage.packed_storage
 use GFX.Color
 use GFX.Canvas.Command
+use GFX.Canvas.Effects.Effect
 use GFX.Canvas.Path.Path
 use GFX.Canvas.Path.Step
 use GFX.Canvas.Shapes.Rect
@@ -41,6 +42,127 @@ enum Coverage {
 struct Bounds {
     let minimum:Math.Vec2
     let maximum:Math.Vec2
+}
+
+package func logical_bounds(commands:@Command[], effects:@Effect[] = []) Rect? {
+    var result:Bounds? = null
+    for command in commands {
+        if let current = command_bounds(command) {
+            result = include_bounds(result, current)
+        }
+    }
+    if let retained = result {
+        let expanded = effect_bounds(retained, effects)
+        return Rect(expanded.minimum, expanded.maximum.subtract(expanded.minimum))
+    }
+    return null
+}
+
+func command_bounds(command:@Command) Bounds? {
+    return match command {
+        fill_rect(value) => optional_bounds(Bounds(
+            minimum:value.shape.position,
+            maximum:value.shape.position.add(value.shape.size)
+        ))
+        stroke_rect(value) => optional_bounds(expanded_bounds(
+            value.shape.position,
+            value.shape.position.add(value.shape.size),
+            value.style.width * 0.5
+        ))
+        fill_circle(value) => optional_bounds(expanded_bounds(
+            value.shape.center,
+            value.shape.center,
+            value.shape.radius
+        ))
+        stroke_circle(value) => optional_bounds(expanded_bounds(
+            value.shape.center,
+            value.shape.center,
+            value.shape.radius + value.style.width * 0.5
+        ))
+        stroke_line(value) => optional_bounds(expanded_bounds(
+            value.shape.start.minimum(value.shape.end),
+            value.shape.start.maximum(value.shape.end),
+            value.style.width * 0.5
+        ))
+        fill_path(value) => optional_bounds(polyline_bounds(flatten(value.shape), 0.0))
+        stroke_path(value) => optional_bounds(polyline_bounds(
+            flatten(value.shape), value.style.width * 0.5
+        ))
+        text(value) => text_bounds(value)
+        layer(value) => layer_bounds(value)
+    }
+}
+
+func optional_bounds(value:Bounds) Bounds? { return value }
+
+func layer_bounds(value:@Command.Layer) Bounds? {
+    if let retained = value.bounds() {
+        return Bounds(
+            minimum:retained.position,
+            maximum:retained.position.add(retained.size)
+        )
+    }
+    return null
+}
+
+func text_bounds(value:@Command.Text) Bounds? {
+    if value.value == "" { return null }
+    let metrics = measure_text(value.value, value.style)
+    let left = aligned_text_left(value.position.x, metrics.width, value.style.alignment)
+    var result = Bounds(
+        minimum:Math.Vec2(left, value.position.y),
+        maximum:Math.Vec2(left + metrics.width, value.position.y + metrics.height)
+    )
+    if let clip = value.clip {
+        result = Bounds(
+            minimum:result.minimum.maximum(clip.position),
+            maximum:result.maximum.minimum(clip.position.add(clip.size))
+        )
+        if result.maximum.x <= result.minimum.x || result.maximum.y <= result.minimum.y {
+            return null
+        }
+    }
+    return result
+}
+
+func aligned_text_left(position:float, width:float, alignment:TextAlignment) float {
+    if alignment == TextAlignment.center { return position - width * 0.5 }
+    if alignment == TextAlignment.end { return position - width }
+    return position
+}
+
+func include_bounds(current:Bounds?, value:Bounds) Bounds {
+    if let retained = current {
+        return Bounds(
+            minimum:retained.minimum.minimum(value.minimum),
+            maximum:retained.maximum.maximum(value.maximum)
+        )
+    }
+    return value
+}
+
+func effect_bounds(source:Bounds, effects:@Effect[]) Bounds {
+    var result = source
+    for effect in effects {
+        match effect.value() {
+            blur(value) => {
+                result = expanded_bounds(result.minimum, result.maximum, value.radius)
+            }
+            shadow(value) => {
+                let shadow = expanded_bounds(
+                    result.minimum.add(value.offset),
+                    result.maximum.add(value.offset),
+                    value.radius
+                )
+                result = Bounds(
+                    minimum:result.minimum.minimum(shadow.minimum),
+                    maximum:result.maximum.maximum(shadow.maximum)
+                )
+            }
+            opacity(value) => {}
+        }
+    }
+    return result
 }
 
 public struct TextImage {
@@ -95,54 +217,15 @@ local func rasterize_text_bounds(
     clipped:bool
 ) TextImage {
     if scale <= 0.0 { panic("GFX.Canvas text raster scale must be positive") }
-    var minimum = Math.Vec2()
-    var upper = Math.Vec2()
-    var found = false
-    for command in commands {
-        match command {
-            text(value) => {
-                if value.value == "" { continue }
-                var style = value.style
-                let metrics = measure_text(value.value, style)
-                var x = value.position.x * scale
-                if style.alignment == TextAlignment.center { x -= metrics.width * scale * 0.5 }
-                if style.alignment == TextAlignment.end { x -= metrics.width * scale }
-                let y = value.position.y * scale
-                var command_minimum = Math.Vec2(x, y)
-                var command_upper = Math.Vec2(
-                    x + metrics.width * scale,
-                    y + metrics.height * scale
-                )
-                if let clip = value.clip {
-                    let clip_minimum = clip.position.multiply(scale)
-                    let clip_upper = clip.position.add(clip.size).multiply(scale)
-                    command_minimum = command_minimum.maximum(clip_minimum)
-                    command_upper = command_upper.minimum(clip_upper)
-                    if command_upper.x <= command_minimum.x ||
-                        command_upper.y <= command_minimum.y
-                    {
-                        continue
-                    }
-                }
-                if !found {
-                    minimum = command_minimum
-                    upper = command_upper
-                } else {
-                    minimum = minimum.minimum(command_minimum)
-                    upper = upper.maximum(command_upper)
-                }
-                found = true
-            }
-            else => {}
-        }
-    }
-    if !found {
+    var retained = text_commands_bounds(commands)
+    if retained == null {
         return TextImage(image:Image(), origin:Math.Vec2(), size:Math.Vec2())
     }
-    var left = Math.floor(minimum.x)
-    var top = Math.floor(minimum.y)
-    var right = Math.ceil(upper.x)
-    var bottom = Math.ceil(upper.y)
+    var logical = retained!
+    var left = Math.floor(logical.minimum.x * scale)
+    var top = Math.floor(logical.minimum.y * scale)
+    var right = Math.ceil(logical.maximum.x * scale)
+    var bottom = Math.ceil(logical.maximum.y * scale)
     if clipped {
         let maximum = Math.Vec2(width as float * scale, height as float * scale)
         left = Math.max(0.0, left)
@@ -170,6 +253,26 @@ local func rasterize_text_bounds(
         origin:origin.multiply(1.0 / scale),
         size:Math.Vec2(cropped_width as float / scale, cropped_height as float / scale)
     )
+}
+
+func text_commands_bounds(commands:@Command[]) Bounds? {
+    var result:Bounds? = null
+    for command in commands {
+        match command {
+            text(value) => {
+                if let current = text_bounds(value) { result = include_bounds(result, current) }
+            }
+            layer(value) => {
+                var nested = value.commands()
+                if let current = text_commands_bounds(nested) {
+                    let effects = value.effects()
+                    result = include_bounds(result, effect_bounds(current, effects))
+                }
+            }
+            else => {}
+        }
+    }
+    return result
 }
 
 func rasterize_selected(
@@ -200,47 +303,71 @@ func rasterize_selected(
         pixel++
     }
 
+    draw_commands(
+        address,
+        width,
+        height,
+        commands,
+        include_shapes,
+        include_text,
+        text_scale,
+        text_origin
+    )
+    return Image.packed_rgba8(width, height, pixels)
+}
+
+func draw_commands(
+    address:uint,
+    width:int,
+    height:int,
+    commands:@Command[],
+    include_shapes:bool,
+    include_text:bool,
+    text_scale:float,
+    text_origin:Math.Vec2
+) {
     for command in commands {
         match command {
             fill_rect(value) => {
                 if !include_shapes { continue }
                 draw_covered(address, width, height, value.style.brush(), Coverage.rect_fill(RectFillCoverage(
-                    position:value.shape.position, size:value.shape.size, radius:value.shape.radius
-                )))
+                    position:value.shape.position.subtract(text_origin), size:value.shape.size, radius:value.shape.radius
+                )), text_origin)
             }
             stroke_rect(value) => {
                 if !include_shapes { continue }
                 draw_covered(address, width, height, value.style.brush(), Coverage.rect_stroke(RectStrokeCoverage(
-                    position:value.shape.position, size:value.shape.size, radius:value.shape.radius, width:value.style.width
-                )))
+                    position:value.shape.position.subtract(text_origin), size:value.shape.size, radius:value.shape.radius, width:value.style.width
+                )), text_origin)
             }
             fill_circle(value) => {
                 if !include_shapes { continue }
                 draw_covered(address, width, height, value.style.brush(), Coverage.circle_fill(CircleFillCoverage(
-                    center:value.shape.center, radius:value.shape.radius
-                )))
+                    center:value.shape.center.subtract(text_origin), radius:value.shape.radius
+                )), text_origin)
             }
             stroke_circle(value) => {
                 if !include_shapes { continue }
                 draw_covered(address, width, height, value.style.brush(), Coverage.circle_stroke(CircleStrokeCoverage(
-                    center:value.shape.center, radius:value.shape.radius, width:value.style.width
-                )))
+                    center:value.shape.center.subtract(text_origin), radius:value.shape.radius, width:value.style.width
+                )), text_origin)
             }
             stroke_line(value) => {
                 if !include_shapes { continue }
                 draw_covered(address, width, height, value.style.brush(), Coverage.line_stroke(LineStrokeCoverage(
-                    start:value.shape.start, end:value.shape.end, width:value.style.width
-                )))
+                    start:value.shape.start.subtract(text_origin), end:value.shape.end.subtract(text_origin), width:value.style.width
+                )), text_origin)
             }
             fill_path(value) => {
                 if !include_shapes { continue }
-                let polyline = flatten(value.shape)
-                draw_path(address, width, height, value.style.brush(), polyline, 0.0, true)
+                let polyline = translated_polyline(flatten(value.shape), text_origin)
+                draw_path(address, width, height, value.style.brush(), polyline, 0.0, true, text_origin)
             }
             stroke_path(value) => {
                 if !include_shapes { continue }
-                let polyline = flatten(value.shape)
-                draw_path(address, width, height, value.style.brush(), polyline, value.style.width * 0.5, false)
+                let polyline = translated_polyline(flatten(value.shape), text_origin)
+                draw_path(address, width, height, value.style.brush(), polyline,
+                    value.style.width * 0.5, false, text_origin)
             }
             text(value) => {
                 if !include_text { continue }
@@ -265,22 +392,343 @@ func rasterize_selected(
                     clip
                 )
             }
+            layer(value) => {
+                var nested = value.commands()
+                let effects = value.effects()
+                if effects.count() == 0 {
+                    draw_commands(
+                        address,
+                        width,
+                        height,
+                        nested,
+                        include_shapes,
+                        include_text,
+                        text_scale,
+                        text_origin
+                    )
+                    continue
+                }
+                if let bounds = value.bounds() {
+                    let left = Math.floor(bounds.position.x * text_scale)
+                    let top = Math.floor(bounds.position.y * text_scale)
+                    let right = Math.ceil((bounds.position.x + bounds.size.x) * text_scale)
+                    let bottom = Math.ceil((bounds.position.y + bounds.size.y) * text_scale)
+                    let layer_width = Math.max(1.0, right - left) as int
+                    let layer_height = Math.max(1.0, bottom - top) as int
+                    let layer_origin = Math.Vec2(left, top)
+                    let isolated = rasterize_selected(
+                        nested,
+                        layer_width,
+                        layer_height,
+                        Color.transparent(),
+                        include_shapes,
+                        include_text,
+                        text_scale,
+                        layer_origin
+                    )
+                    let effected = apply_effects(isolated, effects, text_scale)
+                    composite_image(
+                        address,
+                        width,
+                        height,
+                        effected,
+                        Math.Vec2(left - text_origin.x, top - text_origin.y)
+                    )
+                }
+            }
         }
     }
-    return Image.packed_rgba8(width, height, pixels)
 }
 
-func measure_text(value:str, style:TextStyle) TextMetrics {
+func translated_polyline(source:Polyline, origin:Math.Vec2) Polyline {
+    var points:Math.Vec2[] = []
+    for point in source.points { points.append(point.subtract(origin)) }
+    return Polyline(points:points, closed:source.closed)
+}
+
+// Effects are evaluated in premultiplied linear storage even though Image's
+// public RGBA8 representation is straight alpha. This prevents transparent
+// coloured texels from bleeding into blurred edges.
+func apply_effects(image:Image, effects:@Effect[], scale:float) Image {
+    let width = image.width()
+    let height = image.height()
+    var current = premultiplied_pixels(image)
+    for effect in effects {
+        match effect.value() {
+            blur(value) => {
+                current = blur_premultiplied(current, width, height, value.radius * scale)
+            }
+            opacity(value) => { apply_opacity(current, value.value) }
+            shadow(value) => {
+                current = apply_shadow(
+                    current,
+                    width,
+                    height,
+                    value.offset.multiply(scale),
+                    value.radius * scale,
+                    value.color
+                )
+            }
+        }
+    }
+    return straight_image(current, width, height)
+}
+
+func premultiplied_pixels(image:@Image) float[] {
+    let source = image.pixels()
+    var result:float[] = []
+    var index = 0
+    while index < source.count() {
+        let alpha = source[index + 3] as float / 255.0
+        result.append(source[index] as float / 255.0 * alpha)
+        result.append(source[index + 1] as float / 255.0 * alpha)
+        result.append(source[index + 2] as float / 255.0 * alpha)
+        result.append(alpha)
+        index += 4
+    }
+    return result
+}
+
+func straight_image(values:@float[], width:int, height:int) Image {
+    var pixels:uint8[] = []
+    var index = 0
+    while index < values.count() {
+        let alpha = Math.clamp(values[index + 3], 0.0, 1.0)
+        if alpha <= 0.0 {
+            pixels.append(0 as uint8); pixels.append(0 as uint8)
+            pixels.append(0 as uint8); pixels.append(0 as uint8)
+        } else {
+            pixels.append(color_channel(values[index] / alpha))
+            pixels.append(color_channel(values[index + 1] / alpha))
+            pixels.append(color_channel(values[index + 2] / alpha))
+            pixels.append(color_channel(alpha))
+        }
+        index += 4
+    }
+    return Image.rgba8(width, height, pixels)
+}
+
+func apply_opacity(values:&float[], opacity:float) {
+    var index = 0
+    while index < values.count() {
+        values[index] *= opacity
+        index++
+    }
+}
+
+func gaussian_kernel(radius:float) float[] {
+    if radius <= 0.0 { return [1.0] }
+    let support = Math.max(1.0, Math.ceil(radius)) as int
+    let sigma = Math.max(radius / 3.0, 1.0 / 3.0)
+    let denominator = 2.0 * sigma * sigma
+    var result:float[] = []
+    var total = 0.0
+    var offset = -support
+    while offset <= support {
+        let distance = offset as float
+        let weight = Math.exp(-(distance * distance) / denominator)
+        result.append(weight)
+        total += weight
+        offset++
+    }
+    var index = 0
+    while index < result.count() {
+        result[index] /= total
+        index++
+    }
+    return result
+}
+
+func blur_premultiplied(
+    source:@float[],
+    width:int,
+    height:int,
+    radius:float
+) float[] {
+    if radius <= 0.0 { return copied_floats(source) }
+    let kernel = gaussian_kernel(radius)
+    let support = kernel.count() / 2
+    var horizontal:float[] = []
+    var vertical:float[] = []
+    var value = 0
+    while value < source.count() { horizontal.append(0.0); vertical.append(0.0); value++ }
+
+    var y = 0
+    while y < height {
+        var x = 0
+        while x < width {
+            var channel = 0
+            while channel < 4 {
+                var sum = 0.0
+                var kernel_index = 0
+                while kernel_index < kernel.count() {
+                    let sample_x = x + kernel_index - support
+                    if sample_x >= 0 && sample_x < width {
+                        sum += source[(y * width + sample_x) * 4 + channel] *
+                            kernel[kernel_index]
+                    }
+                    kernel_index++
+                }
+                horizontal[(y * width + x) * 4 + channel] = sum
+                channel++
+            }
+            x++
+        }
+        y++
+    }
+
+    y = 0
+    while y < height {
+        var x = 0
+        while x < width {
+            var channel = 0
+            while channel < 4 {
+                var sum = 0.0
+                var kernel_index = 0
+                while kernel_index < kernel.count() {
+                    let sample_y = y + kernel_index - support
+                    if sample_y >= 0 && sample_y < height {
+                        sum += horizontal[(sample_y * width + x) * 4 + channel] *
+                            kernel[kernel_index]
+                    }
+                    kernel_index++
+                }
+                vertical[(y * width + x) * 4 + channel] = sum
+                channel++
+            }
+            x++
+        }
+        y++
+    }
+    return vertical
+}
+
+func copied_floats(source:@float[]) float[] {
+    var result:float[] = []
+    for value in source { result.append(value) }
+    return result
+}
+
+func apply_shadow(
+    source:@float[],
+    width:int,
+    height:int,
+    offset:Math.Vec2,
+    radius:float,
+    color:Color
+) float[] {
+    var mask:float[] = []
+    var pixel = 0
+    while pixel < width * height {
+        let alpha = source[pixel * 4 + 3]
+        mask.append(alpha); mask.append(alpha); mask.append(alpha); mask.append(alpha)
+        pixel++
+    }
+    let blurred = blur_premultiplied(mask, width, height, radius)
+    var result:float[] = []
+    var y = 0
+    while y < height {
+        var x = 0
+        while x < width {
+            let alpha = sample_alpha(blurred, width, height,
+                x as float - offset.x, y as float - offset.y) * color.a
+            result.append(color.r * alpha)
+            result.append(color.g * alpha)
+            result.append(color.b * alpha)
+            result.append(alpha)
+            x++
+        }
+        y++
+    }
+    composite_premultiplied(result, source)
+    return result
+}
+
+func sample_alpha(values:@float[], width:int, height:int, x:float, y:float) float {
+    let left = Math.floor(x) as int
+    let top = Math.floor(y) as int
+    let fraction_x = x - left as float
+    let fraction_y = y - top as float
+    let top_value = alpha_at(values, width, height, left, top) * (1.0 - fraction_x) +
+        alpha_at(values, width, height, left + 1, top) * fraction_x
+    let bottom_value = alpha_at(values, width, height, left, top + 1) * (1.0 - fraction_x) +
+        alpha_at(values, width, height, left + 1, top + 1) * fraction_x
+    return top_value * (1.0 - fraction_y) + bottom_value * fraction_y
+}
+
+func alpha_at(values:@float[], width:int, height:int, x:int, y:int) float {
+    if x < 0 || y < 0 || x >= width || y >= height { return 0.0 }
+    return values[(y * width + x) * 4 + 3]
+}
+
+// Composites `source` above `destination`, both premultiplied.
+func composite_premultiplied(destination:&float[], source:@float[]) {
+    var index = 0
+    while index < destination.count() {
+        let inverse = 1.0 - source[index + 3]
+        destination[index] = source[index] + destination[index] * inverse
+        destination[index + 1] = source[index + 1] + destination[index + 1] * inverse
+        destination[index + 2] = source[index + 2] + destination[index + 2] * inverse
+        destination[index + 3] = source[index + 3] + destination[index + 3] * inverse
+        index += 4
+    }
+}
+
+func composite_image(
+    destination:uint,
+    width:int,
+    height:int,
+    source:@Image,
+    position:Math.Vec2
+) {
+    let pixels = source.packed_pixels()
+    let address = C.address_bits(C.pointer(pixels))
+    let origin_x = position.x as int
+    let origin_y = position.y as int
+    var source_y = 0
+    while source_y < source.height() {
+        let target_y = origin_y + source_y
+        if target_y >= 0 && target_y < height {
+            var source_x = 0
+            while source_x < source.width() {
+                let target_x = origin_x + source_x
+                if target_x >= 0 && target_x < width {
+                    let source_offset = (source_y * source.width() + source_x) * 4
+                    let destination_offset = (target_y * width + target_x) * 4
+                    let alpha = read_byte(address, source_offset + 3) as float / 255.0
+                    if alpha > 0.0 {
+                        blend(
+                            destination,
+                            destination_offset,
+                            Color.rgba(
+                                read_byte(address, source_offset) as float / 255.0,
+                                read_byte(address, source_offset + 1) as float / 255.0,
+                                read_byte(address, source_offset + 2) as float / 255.0,
+                                alpha
+                            ),
+                            1.0
+                        )
+                    }
+                }
+                source_x++
+            }
+        }
+        source_y++
+    }
+}
+
+func measure_text(value:@str, style:@TextStyle) TextMetrics {
     if style.size <= 0.0 { panic("GFX.Canvas text size must be positive") }
+    var font = style.typeface()
     if let advance = style.fixed_advance {
         return fixed_advance_metrics(
             value,
             advance,
             style,
-            style.typeface()
+            font
         )
     }
-    return measure_font_text(value, style, style.typeface())
+    return measure_font_text(value, style, font)
 }
 
 func draw_covered(
@@ -288,7 +736,8 @@ func draw_covered(
     width:int,
     height:int,
     brush:Brush,
-    coverage:Coverage
+    coverage:Coverage,
+    brush_origin:Math.Vec2
 ) {
     let bounds = coverage_bounds(coverage)
     let minimum_x = Math.max(0.0, Math.floor(bounds.minimum.x)) as int
@@ -301,7 +750,9 @@ func draw_covered(
         while x < maximum_x {
             let amount = shape_coverage(coverage, x, y)
             if amount > 0.0 {
-                let color = brush.color_at(Math.Vec2(x as float + 0.5, y as float + 0.5))
+                let color = brush.color_at(
+                    Math.Vec2(x as float + 0.5, y as float + 0.5).add(brush_origin)
+                )
                 blend(address, (y * width + x) * 4, color, amount)
             }
             x++
@@ -375,10 +826,11 @@ func draw_path(
     brush:Brush,
     line:@Polyline,
     radius:float,
-    filled:bool
+    filled:bool,
+    brush_origin:Math.Vec2
 ) {
     if !filled {
-        draw_stroked_path(address, width, height, brush, line, radius)
+        draw_stroked_path(address, width, height, brush, line, radius, brush_origin)
         return
     }
     let bounds = polyline_bounds(line, radius)
@@ -392,7 +844,9 @@ func draw_path(
         while x < maximum_x {
             let amount = path_coverage(line, x, y, radius, filled)
             if amount > 0.0 {
-                let color = brush.color_at(Math.Vec2(x as float + 0.5, y as float + 0.5))
+                let color = brush.color_at(
+                    Math.Vec2(x as float + 0.5, y as float + 0.5).add(brush_origin)
+                )
                 blend(address, (y * width + x) * 4, color, amount)
             }
             x++
@@ -407,7 +861,8 @@ func draw_stroked_path(
     height:int,
     brush:Brush,
     line:@Polyline,
-    radius:float
+    radius:float,
+    brush_origin:Math.Vec2
 ) {
     if line.points.count() < 2 { return }
     var samples = packed_storage(width * height * 2)
@@ -471,7 +926,9 @@ func draw_stroked_path(
                     if (covered & ((1 as uint16) << sample_index)) != 0 { count++ }
                     sample_index++
                 }
-                let color = brush.color_at(Math.Vec2(x as float + 0.5, y as float + 0.5))
+                let color = brush.color_at(
+                    Math.Vec2(x as float + 0.5, y as float + 0.5).add(brush_origin)
+                )
                 blend(address, (y * width + x) * 4, color, count as float / 16.0)
             }
             x++
@@ -718,16 +1175,19 @@ func near_polyline(point:Math.Vec2, line:@Polyline, radius:float) bool {
     return false
 }
 
-func measure_font_text(value:str, style:TextStyle, font:Font) TextMetrics {
+func measure_font_text(value:@str, style:@TextStyle, font:Font) TextMetrics {
+    let owned_value = copied_text(value)
+    var variations:VectorFont.Variation[] = []
+    for variation in style.variations { variations.append(variation) }
     var instance = font.instance(
         style.size,
         font_weight_key(style.weight),
-        style.variations
+        variations
     )
-    if cached = font.cached_metrics(instance, value) {
+    if cached = font.cached_metrics(instance, owned_value) {
         return TextMetrics(width:cached.width, height:cached.height, lines:cached.lines)
     }
-    let lines = StandardText.split(value, "\n")
+    let lines = StandardText.split(owned_value, "\n")
     var width = 0.0
     for line in lines {
         var run = shaped(instance, line)
@@ -742,7 +1202,7 @@ func measure_font_text(value:str, style:TextStyle, font:Font) TextMetrics {
         height:line_height * lines.count() as float,
         lines:lines.count()
     )
-    font.retain_metrics(instance, value, CachedTextMetrics(
+    font.retain_metrics(instance, owned_value, CachedTextMetrics(
         width:metrics.width,
         height:metrics.height,
         lines:metrics.lines
@@ -924,20 +1384,23 @@ func blend_text_pixel(
 }
 
 func fixed_advance_metrics(
-    value:str,
+    value:@str,
     advance:float,
-    style:TextStyle,
+    style:@TextStyle,
     font:Font
 ) TextMetrics {
+    let owned_value = copied_text(value)
+    var variations:VectorFont.Variation[] = []
+    for variation in style.variations { variations.append(variation) }
     var instance = font.instance(
         style.size,
         font_weight_key(style.weight),
-        style.variations
+        variations
     )
     var columns = 0
     var maximum_columns = 0
     var lines = 1
-    for cluster in Grapheme.split(value) {
+    for cluster in Grapheme.split(owned_value) {
         if cluster == "\n" {
             maximum_columns = max_int(maximum_columns, columns)
             columns = 0
@@ -953,6 +1416,8 @@ func fixed_advance_metrics(
         lines:lines
     )
 }
+
+func copied_text(value:@str) str { return value }
 
 func draw_fixed_advance_text(
     address:uint,

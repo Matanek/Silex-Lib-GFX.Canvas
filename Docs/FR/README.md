@@ -1,8 +1,8 @@
 # Dessiner avec GFX.Canvas
 
 `GFX.Canvas` décrit des intentions de dessin 2D sans imposer de renderer. Un
-`Canvas` enregistre tracés, formes analytiques, remplissages, contours et texte,
-puis les transforme en géométrie vectorielle ou en image RGBA.
+`Canvas` enregistre tracés, formes analytiques, remplissages, contours, texte et
+groupes avec effets, puis les transforme en contenu retenu ou en image RGBA.
 
 [Read this documentation in English.](../EN/README.md)
 
@@ -12,7 +12,7 @@ puis les transforme en géométrie vectorielle ou en image RGBA.
 silex install GFX.Canvas
 ```
 
-GFX.Canvas demande Silex 0.39.0 ou une version plus récente.
+GFX.Canvas demande Silex 0.43.0 ou une version plus récente.
 
 ## Enregistrer et rastériser un dessin
 
@@ -50,22 +50,77 @@ peuvent ainsi conserver une ligne d'overscan jusqu'à son dernier pixel visible,
 sans la laisser déborder sur les contrôles voisins. Le découpage appartient au
 placement, pas à la font ni au cache de shaping.
 
+## Isoler un groupe et lui appliquer des effets
+
+`Painter.layer` regroupe plusieurs intentions avant de leur appliquer une
+ombre, un flou ou une opacité. L'ombre ci-dessous est produite depuis la forme
+et le texte ensemble : le texte reste façonné par `GFX.Font` et conserve son
+`GlyphRun`, ses contours vectoriels et sa couverture hintée.
+
+```sx
+use GFX.Canvas
+use GFX.Color
+use STD.Math
+
+var card = Canvas()
+card.paint(func(painter:&Canvas.Painter) {
+    painter.layer(
+        [Canvas.Effect.shadow(
+            offset:Math.Vec2(0.0, 6.0),
+            radius:12.0,
+            color:Color.black().with_alpha(0.25)
+        )],
+        func(layer:&Canvas.Painter) {
+            layer.fill(
+                Canvas.Rect(Math.Vec2(8.0), Math.Vec2(160.0, 56.0), 10.0),
+                Canvas.Fill.solid(Color.slate_800())
+            )
+            layer.text(
+                "Projet",
+                Math.Vec2(24.0, 18.0),
+                Canvas.TextStyle(size:20.0, color:Color.white())
+            )
+        }
+    )
+})
+
+let image = card.rasterize(184, 80)
+```
+
+Les effets d'une couche s'évaluent de gauche à droite. Par exemple,
+`[blur, shadow, opacity]` floute d'abord le groupe, calcule l'ombre depuis son
+alpha flouté, puis module le contenu et l'ombre. Les couches imbriquées
+s'évaluent entièrement de l'intérieur vers l'extérieur. Le flou et la
+composition utilisent une alpha prémultipliée afin de ne pas colorer les bords
+transparents.
+
+Les bornes publiques d'une couche incluent ses formes, l'encre de son texte et
+l'expansion de ses effets. Une rasterisation cadrée découpe seulement le
+résultat final à la racine. Une couche ne possède pas encore de clip local ;
+les ombres internes, les modes de fusion artistiques et les filtres arbitraires
+ne font pas partie de cette surface.
+
 ## Réutiliser les intentions
 
-`Canvas.commands()` retourne une copie des commandes publiques,
-`Path.steps()` expose les segments et `Canvas.vector_geometry()` produit un
-mesh indépendant du GPU. Une extension peut ainsi interpréter les intentions,
-tesseller elle-même ou réutiliser la tessellation fournie.
+`Canvas.commands()` retourne une copie fidèle des commandes publiques, couches
+imbriquées comprises, et `Path.steps()` expose les segments. Une extension peut
+ainsi interpréter les intentions sans connaître les caches du renderer.
 
 ```sx
 for command in drawing.commands() {
     match command {
         fill_rect(value) => { print("rectangle") }
         text(value) => { print(value.value) }
+        layer(value) => { print("couche $(value.id()), révision $(value.revision())") }
         else => {}
     }
 }
 ```
+
+`Canvas.vector_geometry_compatible()` indique si le dessin peut être décrit
+fidèlement par un mesh seul. `Canvas.vector_geometry()` produit ce mesh lorsque
+la réponse est vraie et refuse explicitement un Canvas dont les effets exigent
+une composition raster ; il ne supprime jamais silencieusement un effet.
 
 `Canvas.snapshot()` conserve la géométrie dans ses coordonnées locales, sans
 inventer de rectangle de dessin. Chaque couche de texte calcule sa propre
@@ -84,6 +139,12 @@ partagée par tous les placements du dessin ;
 révision suivante du même Canvas met ces objets à jour en place. Le renderer
 peut donc partager la compilation sans reconstruire ni remplacer chaque
 composant.
+
+`Snapshot.content()` et `Prepared.content()` conservent l'ordre général sous
+forme de valeurs `geometry`, `text` et `layer`. Le contenu d'une couche expose
+ses effets, ses bornes, son identité et sa révision. Un renderer alternatif
+peut donc rejouer forme, texte et groupe dans l'ordre de l'auteur, sans tenter
+de le reconstruire depuis un mesh agrégé et une liste de textes séparée.
 
 ```sx
 var prepared = drawing.prepared()

@@ -35,8 +35,37 @@ func geometry(commands:@Command[]) Mesh {
 
 func update(commands:@Command[], mesh:&Mesh) {
     mesh.clear_storage()
+    append_commands(commands, mesh)
+}
+
+func compatible(commands:@Command[]) bool {
     for command in commands {
         match command {
+            layer(value) => {
+                if value.effects().count() > 0 { return false }
+                var nested = value.commands()
+                if !compatible(nested) { return false }
+            }
+            else => {}
+        }
+    }
+    return true
+}
+
+func append_commands(commands:@Command[], mesh:&Mesh) {
+    for command in commands {
+        append_command(command, mesh)
+    }
+}
+
+func command_geometry(command:@Command) Mesh {
+    var mesh = Mesh()
+    append_command(command, mesh)
+    return mesh
+}
+
+func append_command(command:@Command, mesh:&Mesh) {
+    match command {
             fill_rect(value) => {
                 append_analytic_rect(mesh, value.shape.position, value.shape.size,
                     value.shape.radius, 0.0, value.style.brush())
@@ -65,7 +94,10 @@ func update(commands:@Command[], mesh:&Mesh) {
                 append_stroke(mesh, line.points, line.closed, value.style)
             }
             text(value) => {}
-        }
+            layer(value) => {
+                var nested = value.commands()
+                append_commands(nested, mesh)
+            }
     }
 }
 

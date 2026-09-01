@@ -1,0 +1,70 @@
+use GFX.Color
+use STD.Math
+
+public struct ShadowEffect {
+    let offset:Math.Vec2
+    let radius:float
+    let color:Color
+}
+
+public struct BlurEffect { let radius:float }
+public struct OpacityEffect { let value:float }
+
+// Closed renderer-neutral description. Renderers inspect this value without
+// learning how Canvas realizes the effect.
+public enum EffectValue {
+    shadow(ShadowEffect)
+    blur(BlurEffect)
+    opacity(OpacityEffect)
+}
+
+public struct Effect {
+    private let current_value:EffectValue
+
+    private init(value:EffectValue) { self.current_value = value }
+
+    static func shadow(offset:Math.Vec2, radius:float, color:Color) Effect {
+        require_finite_vector(offset, "shadow offset")
+        require_radius(radius, "shadow")
+        require_finite_color(color, "shadow color")
+        return Effect(EffectValue.shadow(ShadowEffect(
+            offset:offset,
+            radius:radius,
+            color:color
+        )))
+    }
+
+    static func blur(radius:float) Effect {
+        require_radius(radius, "blur")
+        return Effect(EffectValue.blur(BlurEffect(radius:radius)))
+    }
+
+    static func opacity(value:float) Effect {
+        if !Math.is_finite(value) || value < 0.0 || value > 1.0 {
+            panic("GFX.Canvas opacity must be finite and between zero and one")
+        }
+        return Effect(EffectValue.opacity(OpacityEffect(value:value)))
+    }
+
+    func value() EffectValue { return self.current_value }
+}
+
+func require_radius(value:float, name:str) {
+    if !Math.is_finite(value) || value < 0.0 {
+        panic("GFX.Canvas $(name) radius must be finite and non-negative")
+    }
+}
+
+func require_finite_vector(value:Math.Vec2, name:str) {
+    if !Math.is_finite(value.x) || !Math.is_finite(value.y) {
+        panic("GFX.Canvas $(name) must be finite")
+    }
+}
+
+func require_finite_color(value:Color, name:str) {
+    if !Math.is_finite(value.r) || !Math.is_finite(value.g) ||
+        !Math.is_finite(value.b) || !Math.is_finite(value.a)
+    {
+        panic("GFX.Canvas $(name) must be finite")
+    }
+}

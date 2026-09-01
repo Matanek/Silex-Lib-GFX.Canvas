@@ -43,3 +43,30 @@ test "paint one linear gradient through fills and line strokes" {
     assert(found_red_vertex)
     assert(found_blue_vertex)
 }
+
+test "keep authored gradient coordinates inside an isolated layer" {
+    let brush = Canvas.Brush.linear(
+        start:Math.Vec2(12.0, 0.0),
+        end:Math.Vec2(36.0, 0.0),
+        start_color:Color.red_500(),
+        end_color:Color.blue_500()
+    )
+    var direct = Canvas()
+    direct.paint(func(painter:&Canvas.Painter) {
+        painter.fill(
+            Canvas.Rect(Math.Vec2(12.0, 3.0), Math.Vec2(24.0, 8.0)),
+            Canvas.Fill.with_brush(brush)
+        )
+    })
+    var isolated = Canvas()
+    isolated.paint(func(painter:&Canvas.Painter) {
+        painter.layer([Canvas.Effect.opacity(1.0)], func(layer:&Canvas.Painter) {
+            layer.fill(
+                Canvas.Rect(Math.Vec2(12.0, 3.0), Math.Vec2(24.0, 8.0)),
+                Canvas.Fill.with_brush(brush)
+            )
+        })
+    })
+    assert(direct.rasterize(48, 16).packed_pixels() ==
+        isolated.rasterize(48, 16).packed_pixels())
+}

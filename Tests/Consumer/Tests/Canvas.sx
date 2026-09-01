@@ -160,3 +160,84 @@ test "retain canonical shaped runs and expose vector outlines" {
     assert(grid_run.glyphs()[0].origin_x < 10.0)
     assert(grid_run.glyphs()[-1].origin_x >= 20.0)
 }
+
+test "compose one shadowed card as ordered public content" {
+    var font = Canvas.Font.default()
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.layer(
+            [Canvas.Effect.shadow(
+                offset:Math.Vec2(3.0, 4.0),
+                radius:3.0,
+                color:Color.black().with_alpha(0.4)
+            )],
+            func(layer:&Canvas.Painter) {
+                layer.fill(
+                    Canvas.Rect(Math.Vec2(6.0), Math.Vec2(42.0, 22.0), 3.0),
+                    Canvas.Fill.solid(Color.slate_800())
+                )
+                layer.text(
+                    "Projet",
+                    Math.Vec2(10.0, 8.0),
+                    Canvas.TextStyle(size:12.0, color:Color.white(), font:font)
+                )
+            }
+        )
+    })
+
+    var commands = drawing.commands()
+    assert(commands.count() == 1)
+    match commands[0] {
+        layer(group) => {
+            assert(group.id() > 0)
+            assert(group.revision() == 1)
+            assert(group.commands().count() == 2)
+            assert(group.effects().count() == 1)
+            match group.effects()[0].value() {
+                shadow(value) => {
+                    assert(value.offset == Math.Vec2(3.0, 4.0))
+                    assert(value.radius == 3.0)
+                    assert(value.color.a == 0.4)
+                }
+                else => { assert(false) }
+            }
+            if let bounds = group.bounds() {
+                assert(bounds.position.x <= 6.0)
+                assert(bounds.position.y <= 6.0)
+                assert(bounds.position.x + bounds.size.x > 48.0)
+                assert(bounds.position.y + bounds.size.y > 28.0)
+            } else { assert(false) }
+        }
+        else => { assert(false) }
+    }
+    assert(!drawing.vector_geometry_compatible())
+
+    var snapshot = drawing.snapshot(64, 40)
+    assert(!snapshot.vector_geometry_compatible())
+    var content = snapshot.content()
+    assert(content.count() == 1)
+    match content[0] {
+        layer(group) => {
+            assert(group.effects().count() == 1)
+            var nested = group.content()
+            assert(nested.count() == 2)
+            match nested[0] { geometry(mesh) => { assert(mesh.vertex_count() > 0) }; else => { assert(false) } }
+            match nested[1] { text(value) => { assert(value.glyph_run().glyph_count() > 0) }; else => { assert(false) } }
+        }
+        else => { assert(false) }
+    }
+
+    var prepared = drawing.prepared(64, 40)
+    assert(!prepared.vector_geometry_compatible())
+    assert(prepared.content().count() == 1)
+    var text = snapshot.text_layers()[0]
+    var run = text.glyph_run()
+    var coverage = text.coverage_runs()
+    match text.vector_outlines() {
+        failure(error) => { panic(error.detail) }
+        success(outlines) => {
+            assert(outlines.count() == run.glyph_count())
+            assert(coverage[0].glyph_run.glyphs() == run.glyphs())
+        }
+    }
+}

@@ -1,6 +1,8 @@
 use GFX.Assets.Image
 use GFX.Canvas.Geometry.Mesh
 use GFX.Canvas.Command
+use GFX.Canvas.Command.Layer
+use GFX.Canvas.Effects.Effect
 use GFX.Canvas.Command.same_text_content
 use GFX.Canvas.Rasterizer
 use GFX.Canvas.Shapes.Rect
@@ -10,7 +12,36 @@ use GFX.Canvas.TextLayer.text_layer_repositionable
 use GFX.Canvas.TextLayer.text_layer_unchanged
 use GFX.Canvas.TextLayer.updated_text_layer
 use GFX.Canvas.Styles.same_text_style
+use GFX.Canvas.Vectorizer
 use STD.Math
+
+public class LayerContent {
+    private let source_identity:int
+    private let source_revision:int
+    private let retained_effects:Effect[]
+    private let retained_bounds:Rect?
+    private var ordered:Content[]
+
+    module init(source:@Layer, ordered:Content[]) {
+        self.source_identity = source.id()
+        self.source_revision = source.revision()
+        self.retained_effects = source.effects()
+        self.retained_bounds = source.bounds()
+        self.ordered = ordered
+    }
+
+    func id() int { return self.source_identity }
+    func revision() int { return self.source_revision }
+    func effects() Effect[] { return self.retained_effects }
+    func bounds() Rect? { return self.retained_bounds }
+    func content() Content[] { return self.ordered }
+}
+
+public enum Content {
+    geometry(Mesh)
+    text(TextLayer)
+    layer(LayerContent)
+}
 
 public class Snapshot {
     private static var next_identity:int = 1
@@ -20,8 +51,10 @@ public class Snapshot {
     private var retained_geometry_revision:int
     private var retained_text_revision:int
     private let retained_geometry:Mesh
+    private let retained_geometry_compatible:bool
+    private var retained_commands:Command[]
     private var retained_text:Rasterizer.TextImage? = null
-    private let text_commands:Command[]
+    private var text_commands:Command[]
     private var retained_text_layers:TextLayer[]
     private var reusable_text_layers:TextLayer[]
     private let text_width:int
@@ -36,6 +69,8 @@ public class Snapshot {
         self.retained_text_revision = Snapshot.next_text_revision
         Snapshot.next_text_revision++
         self.retained_geometry = Mesh()
+        self.retained_geometry_compatible = true
+        self.retained_commands = []
         self.text_commands = []
         self.retained_text_layers = []
         self.reusable_text_layers = []
@@ -52,6 +87,8 @@ public class Snapshot {
         self.retained_text_revision = Snapshot.next_text_revision
         Snapshot.next_text_revision++
         self.retained_geometry = geometry
+        self.retained_geometry_compatible = Vectorizer.compatible(commands)
+        self.retained_commands = copied_commands(commands)
         var retained_commands = retained_text_commands(commands)
         self.text_commands = retained_commands
         self.retained_text_layers = create_text_layers(
@@ -73,6 +110,8 @@ public class Snapshot {
         self.retained_text_revision = Snapshot.next_text_revision
         Snapshot.next_text_revision++
         self.retained_geometry = geometry
+        self.retained_geometry_compatible = Vectorizer.compatible(commands)
+        self.retained_commands = copied_commands(commands)
         var retained_commands = retained_text_commands(commands)
         self.text_commands = retained_commands
         self.retained_text_layers = create_text_layers(retained_commands, 0, 0)
@@ -82,25 +121,40 @@ public class Snapshot {
         self.text_scale = 1.0
     }
 
-    func geometry() Mesh { return self.retained_geometry }
+    func vector_geometry_compatible() bool { return self.retained_geometry_compatible }
+    func geometry() Mesh {
+        if !self.retained_geometry_compatible {
+            panic("GFX.Canvas snapshot geometry cannot represent layered effects; use content")
+        }
+        return self.retained_geometry
+    }
     func id() int { return self.identity }
     func geometry_revision() int { return self.retained_geometry_revision }
     func text_revision() int { return self.retained_text_revision }
     func has_text() bool { return self.text_commands.count() > 0 }
     func text_layers() TextLayer[] { return self.retained_text_layers }
+    func content() Content[] {
+        var text_index = 0
+        var layers = self.text_layers()
+        return ordered_content(
+            self.retained_commands,
+            layers,
+            text_index
+        )
+    }
     func has_cached_text() bool { return self.retained_text != null }
     func text(scale:float = 1.0) Image {
         if !Math.nearly_equal(scale, self.text_scale) || self.retained_text == null {
             if self.text_width > 0 && self.text_height > 0 {
                 self.retained_text = Rasterizer.rasterize_cropped_text(
-                    self.text_commands,
+                    self.retained_commands,
                     self.text_width,
                     self.text_height,
                     scale
                 )
             } else {
                 self.retained_text = Rasterizer.rasterize_unbounded_text(
-                    self.text_commands,
+                    self.retained_commands,
                     scale
                 )
             }
@@ -260,11 +314,48 @@ func retained_text_commands(commands:@Command[]) Command[] {
     for command in commands {
         match command {
             text(value) => { if value.value != "" { retained.append(Command.text(value)) } }
+            layer(value) => {
+                var nested = value.commands()
+                var nested_text = retained_text_commands(nested)
+                for text in nested_text { retained.append(text) }
+            }
             else => {}
         }
     }
     return retained
 }
+
+func copied_commands(commands:@Command[]) Command[] {
+    var result:Command[] = []
+    for command in commands { result.append(command) }
+    return result
+}
+
+func ordered_content(
+    commands:@Command[],
+    text_layers:TextLayer[],
+    text_index:&int
+) Content[] {
+    var result:Content[] = []
+    for command in commands {
+        match command {
+            text(value) => {
+                if value.value != "" {
+                    result.append(Content.text(text_layers[text_index]))
+                    text_index++
+                }
+            }
+            layer(value) => {
+                var nested = value.commands()
+                var nested_content = ordered_content(nested, text_layers, text_index)
+                result.append(Content.layer(LayerContent(value, nested_content)))
+            }
+            else => { result.append(Content.geometry(Vectorizer.command_geometry(command))) }
+        }
+    }
+    return result
+}
+
 
 func same_text_commands(first:@Command[], second:@Command[]) bool {
     if first.count() != second.count() { return false }
