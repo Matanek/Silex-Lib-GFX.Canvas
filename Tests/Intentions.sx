@@ -387,6 +387,32 @@ test "start aligned retained runs do not scan the global text metric cache" {
     assert(probe_delta == 0)
 }
 
+test "bound variable text metrics without linear cache scans" {
+    var font = Font.monospace()
+    var drawing = Canvas()
+    var style = TextStyle(size:14.0, font:font)
+    let lookups_before = font.metric_lookup_count()
+    let probes_before = font.metric_probe_count()
+    var index = 0
+    while index < 640 {
+        let metrics = drawing.measure_text("diagnostic $(index) office AVATAR", style)
+        assert(metrics.width > 0.0)
+        index++
+    }
+    assert(font.cached_metric_count() == 512)
+    index = 0
+    while index < 100 {
+        let metrics = drawing.measure_text("diagnostic 639 office AVATAR", style)
+        assert(metrics.width > 0.0)
+        index++
+    }
+    let lookups = font.metric_lookup_count() - lookups_before
+    let probes = font.metric_probe_count() - probes_before
+    print("GFX_CANVAS metric_cache lookups=$(lookups) probes=$(probes)")
+    assert(lookups == 740)
+    assert(probes < 4_096)
+}
+
 test "align retained coverage and vectors from their prepared runs" {
     var font = Font.monospace()
     let lookups_before = font.metric_lookup_count()

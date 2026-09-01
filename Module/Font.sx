@@ -31,8 +31,13 @@ public class Font {
     private var raster_byte_counts:int[]
     private var raster_slots:int[]
     private var raster_bytes:int
+    private var metric_instances:VectorFont.Instance[]
     private var metric_keys:str[]
+    private var metric_hashes:uint[]
     private var metric_values:CachedTextMetrics[]
+    private var metric_entry_slots:int[]
+    private var metric_slots:int[]
+    private var last_metric_index:int
     private var next_metric_key:int
     private var metric_lookups:int
     private var metric_probes:int
@@ -50,8 +55,13 @@ public class Font {
         self.raster_byte_counts = []
         self.raster_slots = empty_raster_slots()
         self.raster_bytes = 0
+        self.metric_instances = []
         self.metric_keys = []
+        self.metric_hashes = []
         self.metric_values = []
+        self.metric_entry_slots = []
+        self.metric_slots = empty_metric_slots()
+        self.last_metric_index = -1
         self.next_metric_key = 0
         self.metric_lookups = 0
         self.metric_probes = 0
@@ -71,8 +81,13 @@ public class Font {
         self.raster_byte_counts = []
         self.raster_slots = empty_raster_slots()
         self.raster_bytes = 0
+        self.metric_instances = []
         self.metric_keys = []
+        self.metric_hashes = []
         self.metric_values = []
+        self.metric_entry_slots = []
+        self.metric_slots = empty_metric_slots()
+        self.last_metric_index = -1
         self.next_metric_key = 0
         self.metric_lookups = 0
         self.metric_probes = 0
@@ -91,8 +106,13 @@ public class Font {
         self.raster_byte_counts = []
         self.raster_slots = empty_raster_slots()
         self.raster_bytes = 0
+        self.metric_instances = []
         self.metric_keys = []
+        self.metric_hashes = []
         self.metric_values = []
+        self.metric_entry_slots = []
+        self.metric_slots = empty_metric_slots()
+        self.last_metric_index = -1
         self.next_metric_key = 0
         self.metric_lookups = 0
         self.metric_probes = 0
@@ -165,25 +185,82 @@ public class Font {
     package func metric_lookup_count() int { return self.metric_lookups }
     package func metric_probe_count() int { return self.metric_probes }
 
-    module func cached_metrics(key:str) CachedTextMetrics? {
+    module func cached_metrics(
+        instance:@VectorFont.Instance,
+        key:str
+    ) CachedTextMetrics? {
         self.metric_lookups++
-        var index = 0
-        while index < self.metric_keys.count() {
+        if self.last_metric_index >= 0 &&
+            self.metric_instances[self.last_metric_index] == instance &&
+            self.metric_keys[self.last_metric_index] == key
+        {
             self.metric_probes++
-            if self.metric_keys[index] == key { return self.metric_values[index] }
-            index++
+            return self.metric_values[self.last_metric_index]
+        }
+        let hash = metric_hash(key)
+        var slot = (hash % self.metric_slots.count() as uint) as int
+        var searched = 0
+        while searched < self.metric_slots.count() {
+            self.metric_probes++
+            let index = self.metric_slots[slot]
+            if index == -1 { return null }
+            if index >= 0 && self.metric_hashes[index] == hash &&
+                self.metric_instances[index] == instance && self.metric_keys[index] == key
+            {
+                self.last_metric_index = index
+                return self.metric_values[index]
+            }
+            slot = (slot + 1) % self.metric_slots.count()
+            searched++
         }
         return null
     }
 
-    module func retain_metrics(key:str, metrics:CachedTextMetrics) {
+    module func retain_metrics(
+        instance:VectorFont.Instance,
+        key:str,
+        metrics:CachedTextMetrics
+    ) {
+        let hash = metric_hash(key)
+        var slot = (hash % self.metric_slots.count() as uint) as int
+        var first_tombstone = -1
+        var searched = 0
+        while searched < self.metric_slots.count() {
+            let index = self.metric_slots[slot]
+            if index == -1 { break }
+            if index == -2 {
+                if first_tombstone < 0 { first_tombstone = slot }
+            } else if self.metric_hashes[index] == hash &&
+                self.metric_instances[index] == instance && self.metric_keys[index] == key
+            {
+                self.metric_values.replace(index, metrics)
+                self.last_metric_index = index
+                return
+            }
+            slot = (slot + 1) % self.metric_slots.count()
+            searched++
+        }
+        if first_tombstone >= 0 { slot = first_tombstone }
         if self.metric_keys.count() < 512 {
+            let index = self.metric_keys.count()
+            self.metric_instances.append(instance)
             self.metric_keys.append(key)
+            self.metric_hashes.append(hash)
             self.metric_values.append(metrics)
+            self.metric_entry_slots.append(slot)
+            self.metric_slots.replace(slot, index)
+            self.last_metric_index = index
             return
         }
+        let previous_slot = self.metric_entry_slots[self.next_metric_key]
+        self.metric_slots.replace(previous_slot, -2)
+        self.metric_instances.replace(self.next_metric_key, instance)
         self.metric_keys.replace(self.next_metric_key, key)
+        self.metric_hashes.replace(self.next_metric_key, hash)
         self.metric_values.replace(self.next_metric_key, metrics)
+        self.metric_entry_slots.replace(self.next_metric_key, slot)
+        self.metric_slots.replace(slot, self.next_metric_key)
+        self.last_metric_index = self.next_metric_key
         self.next_metric_key = (self.next_metric_key + 1) % 512
     }
 
@@ -365,5 +442,25 @@ func weight_axis(face:VectorFont.Face) VectorFont.Axis? {
 func empty_raster_slots() int[] {
     var result:int[] = []
     while result.count() < 2_048 { result.append(-1) }
+    return result
+}
+
+func empty_metric_slots() int[] {
+    var result:int[] = []
+    while result.count() < 2_048 { result.append(-1) }
+    return result
+}
+
+func metric_hash(value:str) uint {
+    var result:uint = 14695981039346656037
+    var index:uint = 0
+    let count = C.byte_count(value)
+    while index < count {
+        result = result ^ C.byte_at(value, index)
+        result = result ^ (result << 13)
+        result = result ^ (result >> 7)
+        result = result ^ (result << 17)
+        index++
+    }
     return result
 }
