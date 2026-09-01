@@ -6,7 +6,9 @@ use GFX.Canvas.Shapes.Circle
 use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.Styles.Fill
 use GFX.Canvas.Styles.Stroke
+use GFX.Canvas.Styles.TextAlignment
 use GFX.Canvas.Styles.TextStyle
+use GFX.Canvas.Font.Font
 use GFX.Canvas.TextBlock.TextBlock
 use STD.Math
 
@@ -338,4 +340,90 @@ test "share cached prepared geometry for one authored frame" {
 
     var unbounded = drawing.prepared()
     assert(unbounded.revision() != refreshed.revision())
+}
+
+test "start aligned retained runs do not scan the global text metric cache" {
+    var font = Font.monospace()
+    let entries_before = font.cached_metric_count()
+    let lookups_before = font.metric_lookup_count()
+    let probes_before = font.metric_probe_count()
+    var slice_lookups = lookups_before
+    var slice_probes = probes_before
+    var index = 0
+    while index < 640 {
+        var block = TextBlock(
+            "streamed retained line $(index)",
+            TextStyle(size:14.0, font:font, line_height:19.0)
+        )
+        var drawing = Canvas()
+        drawing.paint(func(painter:&Painter) {
+            painter.text_block(block, Math.Vec2())
+        })
+        var snapshot = drawing.snapshot(320, 24)
+        var layers = snapshot.text_layers()
+        var runs = layers[0].coverage_runs(2.0)
+        assert(runs.count() == 1)
+        index++
+        if index % 128 == 0 {
+            print(
+                "GFX_CANVAS retained_start depth=$(index) entries=" +
+                "$(font.cached_metric_count()) lookups=" +
+                "$(font.metric_lookup_count() - slice_lookups) probes=" +
+                "$(font.metric_probe_count() - slice_probes)"
+            )
+            slice_lookups = font.metric_lookup_count()
+            slice_probes = font.metric_probe_count()
+        }
+    }
+    let lookup_delta = font.metric_lookup_count() - lookups_before
+    let probe_delta = font.metric_probe_count() - probes_before
+    print(
+        "GFX_CANVAS retained_start entries_before=$(entries_before) " +
+        "entries_after=$(font.cached_metric_count()) lookups=$(lookup_delta) " +
+        "probes=$(probe_delta)"
+    )
+    assert(font.cached_metric_count() == entries_before)
+    assert(lookup_delta == 0)
+    assert(probe_delta == 0)
+}
+
+test "align retained coverage and vectors from their prepared runs" {
+    var font = Font.monospace()
+    let lookups_before = font.metric_lookup_count()
+    var block = TextBlock(
+        "widest retained line\nshort",
+        TextStyle(
+            size:14.0,
+            font:font,
+            alignment:TextAlignment.center,
+            line_height:19.0
+        )
+    )
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Painter) {
+        painter.text_block(block, Math.Vec2(160.0, 2.0))
+    })
+    var snapshot = drawing.snapshot(320, 48)
+    var layer = snapshot.text_layers()[0]
+    var runs = layer.glyph_runs()
+    var width = 0.0
+    for retained in runs {
+        var run = retained
+        width = Math.max(
+            width,
+            Math.ceil(run.metrics().advance.x) as int as float
+        )
+    }
+    let expected_x = 160.0 - width * 0.5
+    var coverage = layer.coverage_runs(2.0)
+    assert(coverage.count() == 2)
+    assert(coverage[0].origin.x == Math.floor(expected_x * 2.0) / 2.0)
+    match layer.vector_outlines() {
+        failure(error) => { panic(error.detail) }
+        success(placements) => {
+            assert(!placements.is_empty())
+            assert(placements[0].baseline.x == expected_x)
+        }
+    }
+    assert(font.metric_lookup_count() == lookups_before)
 }

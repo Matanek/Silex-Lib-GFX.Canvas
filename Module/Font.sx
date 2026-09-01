@@ -34,6 +34,8 @@ public class Font {
     private var metric_keys:str[]
     private var metric_values:CachedTextMetrics[]
     private var next_metric_key:int
+    private var metric_lookups:int
+    private var metric_probes:int
 
     init(source:uint8[]) {
         self.face_value = decoded_face(VectorFont.Face.decode(source))
@@ -51,6 +53,8 @@ public class Font {
         self.metric_keys = []
         self.metric_values = []
         self.next_metric_key = 0
+        self.metric_lookups = 0
+        self.metric_probes = 0
     }
 
     init(source:str) {
@@ -70,6 +74,8 @@ public class Font {
         self.metric_keys = []
         self.metric_values = []
         self.next_metric_key = 0
+        self.metric_lookups = 0
+        self.metric_probes = 0
     }
 
     init(source:VectorFont.Face) {
@@ -88,6 +94,8 @@ public class Font {
         self.metric_keys = []
         self.metric_values = []
         self.next_metric_key = 0
+        self.metric_lookups = 0
+        self.metric_probes = 0
     }
 
     static func default() Font {
@@ -153,10 +161,15 @@ public class Font {
     package func cached_face_count() int { return self.instance_values.count() }
     package func cached_raster_count() int { return self.raster_values.count() }
     package func cached_raster_byte_count() int { return self.raster_bytes }
+    package func cached_metric_count() int { return self.metric_keys.count() }
+    package func metric_lookup_count() int { return self.metric_lookups }
+    package func metric_probe_count() int { return self.metric_probes }
 
     module func cached_metrics(key:str) CachedTextMetrics? {
+        self.metric_lookups++
         var index = 0
         while index < self.metric_keys.count() {
+            self.metric_probes++
             if self.metric_keys[index] == key { return self.metric_values[index] }
             index++
         }

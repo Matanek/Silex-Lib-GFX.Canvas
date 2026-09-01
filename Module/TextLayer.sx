@@ -198,14 +198,10 @@ public class TextLayer {
         if let command = self.current_command {
             match command {
                 text(value) => {
-                    let metrics = Rasterizer.measure_text(value.value, value.style)
-                    var origin_x = value.position.x * density
-                    if value.style.alignment == TextAlignment.center {
-                        origin_x -= metrics.width * density * 0.5
-                    }
-                    if value.style.alignment == TextAlignment.end {
-                        origin_x -= metrics.width * density
-                    }
+                    let origin_x = self.aligned_origin_x(
+                        value.position.x,
+                        value.style.alignment
+                    ) * density
                     var instance = value.style.typeface().instance(
                         value.style.size,
                         text_weight_key(value.style.weight),
@@ -360,10 +356,10 @@ public class TextLayer {
         if let command = self.current_command {
             match command {
                 text(value) => {
-                    let metrics = Rasterizer.measure_text(value.value, value.style)
-                    var origin_x = value.position.x
-                    if value.style.alignment == TextAlignment.center { origin_x -= metrics.width * 0.5 }
-                    if value.style.alignment == TextAlignment.end { origin_x -= metrics.width }
+                    let origin_x = self.aligned_origin_x(
+                        value.position.x,
+                        value.style.alignment
+                    )
                     var instance = value.style.typeface().instance(
                         value.style.size,
                         text_weight_key(value.style.weight),
@@ -385,6 +381,22 @@ public class TextLayer {
             }
         }
         return result
+    }
+
+    private func aligned_origin_x(
+        position:float,
+        alignment:TextAlignment
+    ) float {
+        if alignment == TextAlignment.start { return position }
+        var width = 0.0
+        for retained in self.retained_runs {
+            var run = retained
+            var line_width = Math.ceil(run.metrics().advance.x) as int as float
+            if run.instance().synthesis().embolden { line_width += 1.0 }
+            width = Math.max(width, line_width)
+        }
+        if alignment == TextAlignment.center { return position - width * 0.5 }
+        return position - width
     }
 }
 
