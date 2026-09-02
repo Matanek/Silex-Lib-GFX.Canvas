@@ -208,6 +208,10 @@ let current = drawing.prepared(320, 80)
 bounds, identity, and revision. An alternative renderer can therefore replay
 shapes, text, and groups in author order without trying to reconstruct it from
 an aggregate mesh and a separate text list.
+For immediate traversal without taking another list copy,
+`Snapshot.content_view()`, `Prepared.content_view()`, and
+`LayerContent.content_view()` return a read-only view whose lifetime remains
+bound to its owner.
 
 ```sx
 var prepared = drawing.prepared()

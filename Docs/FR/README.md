@@ -215,6 +215,10 @@ forme de valeurs `geometry`, `image`, `text` et `layer`. Le contenu d'une couche
 ses effets, ses bornes, son identité et sa révision. Un renderer alternatif
 peut donc rejouer forme, texte et groupe dans l'ordre de l'auteur, sans tenter
 de le reconstruire depuis un mesh agrégé et une liste de textes séparée.
+Pour un parcours immédiat sans prendre une nouvelle copie de la liste,
+`Snapshot.content_view()`, `Prepared.content_view()` et
+`LayerContent.content_view()` renvoient une vue en lecture seule dont la durée
+de vie reste liée à son propriétaire.
 
 ```sx
 var prepared = drawing.prepared()

@@ -2,8 +2,6 @@ use GFX.Canvas.Command
 use GFX.Canvas.Geometry.Mesh
 use GFX.Canvas.Snapshot.Snapshot
 use GFX.Canvas.Snapshot.Content
-use GFX.Canvas.Snapshot.retained_text_snapshot
-use GFX.Canvas.Snapshot.retained_unbounded_text_snapshot
 use GFX.Canvas.TextLayer.TextLayer
 use GFX.Canvas.Vectorizer
 
@@ -18,6 +16,7 @@ public class Prepared {
     private var retained_geometry:Mesh
     private var staging_geometry:Mesh
     private var retained_text:Snapshot
+    private var staging_text:Snapshot
     private var retained_has_text:bool
     private var retained_geometry_compatible:bool
 
@@ -27,6 +26,7 @@ public class Prepared {
         self.retained_geometry = Mesh()
         self.staging_geometry = Mesh()
         self.retained_text = Snapshot()
+        self.staging_text = Snapshot()
         self.retained_has_text = false
         self.retained_geometry_compatible = true
     }
@@ -43,18 +43,17 @@ public class Prepared {
     func has_text() bool { return self.retained_has_text }
     func text_layers() TextLayer[] { return self.retained_text.text_layers() }
     func content() Content[] { return self.retained_text.content() }
+    func content_view() @Content[..] { return self.retained_text.content_view() }
 
     package func update(commands:@Command[]) {
-        var text = retained_unbounded_text_snapshot(commands)
-        self.commit(commands, text)
+        self.commit(commands, 0, 0)
     }
 
     package func update(commands:@Command[], width:int, height:int) {
-        var text = retained_text_snapshot(commands, width, height)
-        self.commit(commands, text)
+        self.commit(commands, width, height)
     }
 
-    private func commit(commands:@Command[], text:Snapshot) {
+    private func commit(commands:@Command[], width:int, height:int) {
         self.retained_geometry_compatible = Vectorizer.compatible(commands)
         Vectorizer.update(commands, self.staging_geometry)
         if !same_mesh(self.retained_geometry, self.staging_geometry) {
@@ -64,9 +63,12 @@ public class Prepared {
             self.current_geometry_revision = Prepared.next_geometry_revision
             Prepared.next_geometry_revision++
         }
-        var retained = text
+        var retained = self.staging_text
+        retained.update(commands, width, height)
         retained.reuse_unchanged(self.retained_text)
+        var previous = self.retained_text
         self.retained_text = retained
+        self.staging_text = previous
         self.retained_has_text = retained.has_text()
         self.current_revision = Prepared.next_revision
         Prepared.next_revision++
