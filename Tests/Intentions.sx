@@ -4,6 +4,7 @@ use GFX.Canvas.Canvas.Painter
 use GFX.Canvas.Prepared.Prepared
 use GFX.Canvas.Shapes.Circle
 use GFX.Canvas.Shapes.Rect
+use GFX.Canvas.Path.Path
 use GFX.Canvas.Styles.Fill
 use GFX.Canvas.Styles.Stroke
 use GFX.Canvas.Styles.TextAlignment
@@ -379,6 +380,45 @@ test "retain prepared geometry while only text changes" {
     assert(prepared.geometry_revision() == geometry_revision)
     assert(changed_layers[0].id() == first_layers[0].id())
     assert(changed_layers[0].revision() == first_layers[0].revision() + 1)
+}
+
+test "mutate retained path and text resources without replacing the Canvas" {
+    var path = Path()
+        ..move_to(Math.Vec2(2.0, 2.0))
+        ..line_to(Math.Vec2(18.0, 2.0))
+        ..line_to(Math.Vec2(18.0, 12.0))
+    var block = TextBlock("phase A", TextStyle(size:14.0))
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Painter) {
+        painter.layer([Effect.blur(2.0)], func(layer:&Painter) {
+            layer.stroke(path, Stroke(Color.cyan_500(), 2.0))
+            layer.text_block(block, Math.Vec2(4.0, 16.0))
+        })
+    })
+    var prepared = drawing.prepared(80, 40)
+    let first_drawing_revision = drawing.revision()
+    let first_prepared_revision = prepared.revision()
+    let first_geometry_revision = prepared.geometry_revision()
+    var first_layers = prepared.text_layers()
+    let first_text_identity = first_layers[0].id()
+    let first_text_revision = first_layers[0].revision()
+
+    path.reset()
+        ..move_to(Math.Vec2(6.0, 4.0))
+        ..line_to(Math.Vec2(42.0, 4.0))
+        ..line_to(Math.Vec2(42.0, 14.0))
+    block.replace("phase B")
+    var refreshed = drawing.prepared(80, 40)
+    var changed_layers = refreshed.text_layers()
+    assert(drawing.revision() > first_drawing_revision)
+    assert(refreshed.revision() != first_prepared_revision)
+    assert(refreshed.revision() == prepared.revision())
+    assert(refreshed.geometry_revision() != first_geometry_revision)
+    assert(changed_layers[0].id() == first_text_identity)
+    assert(changed_layers[0].revision() == first_text_revision + 1)
+    if let bounds = drawing.bounds() {
+        assert(bounds.size.x > 38.0)
+    } else { assert(false) }
 }
 
 test "share cached prepared geometry for one authored frame" {

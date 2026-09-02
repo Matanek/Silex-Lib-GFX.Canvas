@@ -70,10 +70,11 @@ test "consume the public Canvas surface" {
 }
 
 test "consume retained image fills through public Canvas and Assets APIs" {
-    var paint = Canvas.ImagePaint(Image.rgba8(2, 1, [
+    let pixels:uint8[] = [
         255, 0, 0, 255,
         0, 0, 255, 255
-    ]))
+    ]
+    var paint = Canvas.ImagePaint(Image.rgba8(2, 1, pixels))
     var drawing = Canvas()
     drawing.paint(func(painter:&Canvas.Painter) {
         painter.fill(
@@ -99,6 +100,31 @@ test "consume retained image fills through public Canvas and Assets APIs" {
         }
         else => { assert(false) }
     }
+}
+
+test "mutate retained path and text resources through the public Canvas API" {
+    var path = Canvas.Path()
+        ..move_to(Math.Vec2(2.0, 2.0))
+        ..line_to(Math.Vec2(18.0, 2.0))
+        ..line_to(Math.Vec2(18.0, 12.0))
+    var label = Canvas.TextBlock("phase A", Canvas.TextStyle(size:14.0))
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.stroke(path, Canvas.Stroke(Color.cyan_500(), 2.0))
+        painter.text_block(label, Math.Vec2(4.0, 16.0))
+    })
+    let first_revision = drawing.revision()
+
+    path.reset()
+        ..move_to(Math.Vec2(6.0, 4.0))
+        ..line_to(Math.Vec2(42.0, 4.0))
+        ..line_to(Math.Vec2(42.0, 14.0))
+    label.replace("phase B")
+
+    assert(drawing.revision() > first_revision)
+    if let bounds = drawing.bounds() {
+        assert(bounds.size.x > 38.0)
+    } else { assert(false) }
 }
 
 test "consume the interactive Canvas session contract" {

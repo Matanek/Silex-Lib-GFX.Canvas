@@ -7,6 +7,7 @@ use GFX.Canvas.Command
 use GFX.Canvas.Command.Layer
 use GFX.Canvas.Effects.Effect
 use GFX.Canvas.Command.same_text_content
+use GFX.Canvas.Command.current_text
 use GFX.Canvas.Rasterizer
 use GFX.Canvas.Shapes.Rect
 use GFX.Canvas.TextLayer.TextLayer
@@ -347,7 +348,12 @@ func retained_text_commands(commands:@Command[]) Command[] {
     var retained:Command[] = []
     for command in commands {
         match command {
-            text(value) => { if value.value != "" { retained.append(Command.text(value)) } }
+            text(value) => {
+                var retained_value = current_text(value)
+                if retained_value.value != "" {
+                    retained.append(Command.text(retained_value))
+                }
+            }
             layer(value) => {
                 var nested = value.commands()
                 var nested_text = retained_text_commands(nested)
@@ -374,7 +380,8 @@ func ordered_content(
     for command in commands {
         match command {
             text(value) => {
-                if value.value != "" {
+                var retained_value = current_text(value)
+                if retained_value.value != "" {
                     result.append(Content.text(text_layers[text_index]))
                     text_index++
                 }

@@ -196,6 +196,20 @@ révision suivante du même Canvas met ces objets à jour en place. Le renderer
 peut donc partager la compilation sans reconstruire ni remplacer chaque
 composant.
 
+Pour une animation de contenu, `Path.reset()` conserve l’objet chemin, vide
+ses segments et avance sa révision avant de recevoir les nouveaux segments.
+`TextBlock.replace(value)` conserve de même l’identité du bloc, invalide son
+façonnage et avance seulement sa révision lorsque la valeur change. Un Canvas
+qui référence ces ressources voit automatiquement sa révision, ses bornes et
+sa préparation évoluer ; il n’est pas nécessaire de l’effacer puis de le
+repeindre.
+
+```sx
+path.reset()..move_to(start)..line_to(animated_end)
+label.replace("Frame B")
+let current = drawing.prepared(320, 80)
+```
+
 `Snapshot.content()` et `Prepared.content()` conservent l'ordre général sous
 forme de valeurs `geometry`, `image`, `text` et `layer`. Le contenu d'une couche expose
 ses effets, ses bornes, son identité et sa révision. Un renderer alternatif

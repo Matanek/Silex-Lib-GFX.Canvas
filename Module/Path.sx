@@ -29,11 +29,13 @@ public enum Step {
 
 public class Path {
     private var current_steps:Step[]
+    private var current_revision:int
     private var started:bool
     private var closed:bool
 
     init() {
         self.current_steps = []
+        self.current_revision = 1
         self.started = false
         self.closed = false
     }
@@ -42,18 +44,21 @@ public class Path {
         if self.started { panic("GFX.Canvas path currently supports one contour") }
         self.current_steps.append(Step.moved(point))
         self.started = true
+        self.current_revision++
         return self
     }
 
     func line_to(point:Math.Vec2) Path {
         self.require_open()
         self.current_steps.append(Step.lined(point))
+        self.current_revision++
         return self
     }
 
     func quadratic_to(control:Math.Vec2, end:Math.Vec2) Path {
         self.require_open()
         self.current_steps.append(Step.quadratic(QuadraticCurve(control:control, end:end)))
+        self.current_revision++
         return self
     }
 
@@ -64,6 +69,7 @@ public class Path {
             control_b:control_b,
             end:end
         )))
+        self.current_revision++
         return self
     }
 
@@ -77,6 +83,7 @@ public class Path {
             start:start,
             sweep:sweep
         )))
+        self.current_revision++
         return self
     }
 
@@ -84,9 +91,19 @@ public class Path {
         self.require_open()
         self.current_steps.append(Step.close())
         self.closed = true
+        self.current_revision++
         return self
     }
 
+    func reset() Path {
+        self.current_steps.clear()
+        self.started = false
+        self.closed = false
+        self.current_revision++
+        return self
+    }
+
+    func revision() int { return self.current_revision }
     func is_empty() bool { return self.current_steps.count() == 0 }
     func steps() Step[] { return self.current_steps }
 

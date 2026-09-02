@@ -2,6 +2,7 @@ use GFX.Assets.Image
 use GFX.Canvas.PackedStorage.packed_storage
 use GFX.Color
 use GFX.Canvas.Command
+use GFX.Canvas.Command.current_text
 use GFX.Canvas.Effects.Effect
 use GFX.Canvas.Path.Path
 use GFX.Canvas.Path.Step
@@ -119,15 +120,20 @@ func layer_bounds(value:@Command.Layer) Bounds? {
     return null
 }
 
-func text_bounds(value:@Command.Text) Bounds? {
-    if value.value == "" { return null }
-    let metrics = measure_text(value.value, value.style)
-    let left = aligned_text_left(value.position.x, metrics.width, value.style.alignment)
-    var result = Bounds(
-        minimum:Math.Vec2(left, value.position.y),
-        maximum:Math.Vec2(left + metrics.width, value.position.y + metrics.height)
+func text_bounds(value:Command.Text) Bounds? {
+    var retained = current_text(value)
+    if retained.value == "" { return null }
+    let metrics = measure_text(retained.value, retained.style)
+    let left = aligned_text_left(
+        retained.position.x,
+        metrics.width,
+        retained.style.alignment
     )
-    if let clip = value.clip {
+    var result = Bounds(
+        minimum:Math.Vec2(left, retained.position.y),
+        maximum:Math.Vec2(left + metrics.width, retained.position.y + metrics.height)
+    )
+    if let clip = retained.clip {
         result = Bounds(
             minimum:result.minimum.maximum(clip.position),
             maximum:result.maximum.minimum(clip.position.add(clip.size))
@@ -385,8 +391,9 @@ func draw_commands(
             }
             text(value) => {
                 if !include_text { continue }
+                var retained = current_text(value)
                 var clip:Rect? = null
-                if let bounds = value.clip {
+                if let bounds = retained.clip {
                     clip = Rect(
                         bounds.position.multiply(text_scale).subtract(text_origin),
                         bounds.size.multiply(text_scale)
@@ -396,12 +403,12 @@ func draw_commands(
                     address,
                     width,
                     height,
-                    value.value,
+                    retained.value,
                     Math.Vec2(
-                        value.position.x * text_scale - text_origin.x,
-                        value.position.y * text_scale - text_origin.y
+                        retained.position.x * text_scale - text_origin.x,
+                        retained.position.y * text_scale - text_origin.y
                     ),
-                    value.style,
+                    retained.style,
                     text_scale,
                     clip
                 )

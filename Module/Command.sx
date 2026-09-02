@@ -75,7 +75,12 @@ public class Layer {
     }
     func effects() Effect[] { return self.current_effects }
     func commands() Command[] { return self.current_commands }
-    func bounds() Rect? { return self.current_bounds }
+    func bounds() Rect? {
+        return GFX.Canvas.Rasterizer.logical_bounds(
+            self.current_commands,
+            self.current_effects
+        )
+    }
 
     package static func retained(
         effects:Effect[],
@@ -140,6 +145,29 @@ module func same_text_content(first:@Text, second:@Text) bool {
             first.block_revision == second.block_revision
     }
     return first.value == second.value
+}
+
+module func current_text(value:Text) Text {
+    if let block = value.block {
+        return Text(
+            value:block.value(),
+            position:value.position,
+            style:block.style(),
+            clip:value.clip,
+            block_identity:block.identity(),
+            block_revision:block.revision(),
+            block:block
+        )
+    }
+    return Text(
+        value:value.value,
+        position:value.position,
+        style:value.style,
+        clip:value.clip,
+        block_identity:value.block_identity,
+        block_revision:value.block_revision,
+        block:value.block
+    )
 }
 
 public enum Command {
@@ -219,7 +247,13 @@ module func command_resource_revision(commands:@Command[]) int {
         match command {
             fill_rect(value) => { revision += fill_resource_revision(value.style) }
             fill_circle(value) => { revision += fill_resource_revision(value.style) }
-            fill_path(value) => { revision += fill_resource_revision(value.style) }
+            fill_path(value) => {
+                revision += value.shape.revision() + fill_resource_revision(value.style)
+            }
+            stroke_path(value) => { revision += value.shape.revision() }
+            text(value) => {
+                if let block = value.block { revision += block.revision() }
+            }
             layer(value) => {
                 var nested = value.commands()
                 revision += command_resource_revision(nested)

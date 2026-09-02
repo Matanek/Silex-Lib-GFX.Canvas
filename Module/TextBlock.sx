@@ -9,8 +9,8 @@ use STD.Text as StandardText
 public class TextBlock {
     private static var next_identity:int = 1
     private let current_identity:int
-    private let current_revision:int
-    private let current_value:str
+    private var current_revision:int
+    private var current_value:str
     private var current_style:TextStyle
     private var current_runs:VectorFont.GlyphRun[]
     private var prepared:bool
@@ -29,6 +29,16 @@ public class TextBlock {
     func revision() int { return self.current_revision }
     func value() str { return self.current_value }
     func style() TextStyle { return self.current_style }
+
+    // Replace retained content without changing the identity consumed by
+    // Canvas and renderer caches.
+    func replace(value:str) {
+        if value == self.current_value { return }
+        self.current_value = value
+        self.current_revision++
+        self.current_runs.clear()
+        self.prepared = false
+    }
 
     func prepare() {
         if self.prepared { return }

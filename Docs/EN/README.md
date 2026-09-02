@@ -190,6 +190,19 @@ shared by every placement of that drawing;
 revision of the same Canvas updates those objects in place, so a renderer can
 share the compilation without rebuilding or replacing every component.
 
+For content animation, `Path.reset()` preserves the path object, clears its
+segments, and advances its revision before accepting new segments.
+`TextBlock.replace(value)` likewise preserves the block identity, invalidates
+its shaping, and advances only its revision when the value changes. A Canvas
+that references these resources automatically updates its revision, bounds,
+and preparation; it does not need to be cleared and repainted.
+
+```sx
+path.reset()..move_to(start)..line_to(animated_end)
+label.replace("Frame B")
+let current = drawing.prepared(320, 80)
+```
+
 `Snapshot.content()` and `Prepared.content()` preserve the general order as
 `geometry`, `image`, `text`, and `layer` values. Layer content exposes its effects,
 bounds, identity, and revision. An alternative renderer can therefore replay
