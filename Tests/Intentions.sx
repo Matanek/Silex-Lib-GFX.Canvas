@@ -57,32 +57,6 @@ test "report final logical bounds after portable effects" {
     assert(canvas.bounds() == null)
 }
 
-test "reuse retained ordered content across unchanged prepared reads" {
-    var drawing = Canvas()
-    drawing.paint(func(painter:&Painter) {
-        painter.layer([Effect.blur(3.0)], func(layer:&Painter) {
-            layer.fill(
-                Rect(Math.Vec2(2.0), Math.Vec2(12.0, 8.0)),
-                Fill.solid(Color.cyan_400())
-            )
-        })
-    })
-    var prepared = drawing.prepared(32, 24)
-    var first = prepared.content()
-    var second = prepared.content()
-    assert(first.count() == 1)
-    assert(second.count() == 1)
-    match first[0] {
-        layer(left) => {
-            match second[0] {
-                layer(right) => { assert(left == right) }
-                else => { assert(false) }
-            }
-        }
-        else => { assert(false) }
-    }
-}
-
 test "retain unchanged sibling layer identities and revisions" {
     var canvas = Canvas()
     canvas.paint(func(painter:&Painter) {

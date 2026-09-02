@@ -85,9 +85,8 @@ public class Snapshot {
     private var text_commands:Command[]
     private var retained_text_layers:TextLayer[]
     private var reusable_text_layers:TextLayer[]
-    private var retained_content:Content[]
-    private var text_width:int
-    private var text_height:int
+    private let text_width:int
+    private let text_height:int
     private var text_scale:float
 
     init() {
@@ -104,7 +103,6 @@ public class Snapshot {
         self.text_commands = []
         self.retained_text_layers = []
         self.reusable_text_layers = []
-        self.retained_content = []
         self.text_width = 1
         self.text_height = 1
         self.text_scale = 1.0
@@ -135,11 +133,9 @@ public class Snapshot {
             height
         )
         self.reusable_text_layers = []
-        self.retained_content = []
         self.text_width = width
         self.text_height = height
         self.text_scale = 1.0
-        self.rebuild_content()
     }
 
     module init(geometry:Mesh, commands:@Command[], source_canvas_identity:int) {
@@ -157,11 +153,9 @@ public class Snapshot {
         self.text_commands = retained_commands
         self.retained_text_layers = create_text_layers(retained_commands, 0, 0)
         self.reusable_text_layers = []
-        self.retained_content = []
         self.text_width = 0
         self.text_height = 0
         self.text_scale = 1.0
-        self.rebuild_content()
     }
 
     func vector_geometry_compatible() bool { return self.retained_geometry_compatible }
@@ -177,9 +171,14 @@ public class Snapshot {
     func text_revision() int { return self.retained_text_revision }
     func has_text() bool { return self.text_commands.count() > 0 }
     func text_layers() TextLayer[] { return self.retained_text_layers }
-    func content() Content[] { return self.retained_content }
-    func content_view() @Content[..] {
-        return @self.retained_content[0:self.retained_content.count()]
+    func content() Content[] {
+        var text_index = 0
+        var layers = self.text_layers()
+        return ordered_content(
+            self.retained_commands,
+            layers,
+            text_index
+        )
     }
     func has_cached_text() bool { return self.retained_text != null }
     func text(scale:float = 1.0) Image {
@@ -209,30 +208,11 @@ public class Snapshot {
         panic("GFX retained drawing could not cache its text layer")
     }
 
-    package func update(commands:@Command[], width:int, height:int) {
-        self.retained_content.clear()
-        self.retained_text_layers.clear()
-        self.reusable_text_layers.clear()
-        self.retained_commands.clear()
-        for command in commands { self.retained_commands.append(command) }
-        self.text_commands.clear()
-        append_retained_text_commands(commands, self.text_commands)
-        self.text_width = width
-        self.text_height = height
-        self.retained_text = null
-        self.text_scale = 1.0
-        self.retained_geometry_revision = Snapshot.next_geometry_revision
-        Snapshot.next_geometry_revision++
-        self.retained_text_revision = Snapshot.next_text_revision
-        Snapshot.next_text_revision++
-    }
-
     package func reuse_unchanged(previous:@Snapshot) {
         if same_geometry(self.retained_geometry, previous.retained_geometry) {
             self.retained_geometry_revision = previous.retained_geometry_revision
         }
         self.retain_text_layers(previous)
-        self.rebuild_content()
         if !same_text_commands(self.text_commands, previous.text_commands) { return }
         if self.text_width != previous.text_width ||
             self.text_height != previous.text_height
@@ -321,16 +301,6 @@ public class Snapshot {
         for layer in self.reusable_text_layers { result.append(layer) }
         return result
     }
-
-    private func rebuild_content() {
-        var text_index = 0
-        var commands = self.retained_commands
-        var layers = self.retained_text_layers
-        var retained = self.retained_content
-        retained.clear()
-        append_ordered_content(commands, layers, text_index, retained)
-        self.retained_content = retained
-    }
 }
 
 func same_geometry(first:@Mesh, second:@Mesh) bool {
@@ -379,26 +349,27 @@ func create_text_layers(
 
 func retained_text_commands(commands:@Command[]) Command[] {
     var retained:Command[] = []
-    append_retained_text_commands(commands, retained)
-    return retained
-}
-
-func append_retained_text_commands(commands:@Command[], retained:&Command[]) {
     for command in commands {
         match command {
             text(value) => {
-                var retained_value = current_text(value)
-                if retained_value.value != "" {
-                    retained.append(Command.text(retained_value))
+                if let block = value.block {
+                    var retained_value = current_text(value)
+                    if retained_value.value != "" {
+                        retained.append(Command.text(retained_value))
+                    }
+                } elif value.value != "" {
+                    retained.append(Command.text(value))
                 }
             }
             layer(value) => {
                 var nested = value.commands()
-                append_retained_text_commands(nested, retained)
+                var nested_text = retained_text_commands(nested)
+                for text in nested_text { retained.append(text) }
             }
             else => {}
         }
     }
+    return retained
 }
 
 func copied_commands(commands:@Command[]) Command[] {
@@ -413,21 +384,12 @@ func ordered_content(
     text_index:&int
 ) Content[] {
     var result:Content[] = []
-    append_ordered_content(commands, text_layers, text_index, result)
-    return result
-}
-
-func append_ordered_content(
-    commands:@Command[],
-    text_layers:TextLayer[],
-    text_index:&int,
-    result:&Content[]
-) {
     for command in commands {
         match command {
             text(value) => {
-                var retained_value = current_text(value)
-                if retained_value.value != "" {
+                var visible = value.value != ""
+                if let block = value.block { visible = block.value() != "" }
+                if visible {
                     result.append(Content.text(text_layers[text_index]))
                     text_index++
                 }
@@ -473,6 +435,7 @@ func append_ordered_content(
             else => { result.append(Content.geometry(Vectorizer.command_geometry(command))) }
         }
     }
+    return result
 }
 
 
