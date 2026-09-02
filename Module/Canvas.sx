@@ -95,6 +95,13 @@ public class Canvas {
     func is_empty() bool { return self.command_buffer.count() == 0 }
     func command_count() int { return self.command_buffer.count() }
 
+    // Final logical ink bounds after portable Canvas effects. Renderers use
+    // this to isolate unframed content without inventing a CPU raster frame.
+    func bounds() Rect? {
+        var commands = self.command_buffer.values()
+        return Rasterizer.logical_bounds(commands)
+    }
+
     func vector_geometry_compatible() bool {
         var commands = self.command_buffer.values()
         return Vectorizer.compatible(commands)

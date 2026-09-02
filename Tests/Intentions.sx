@@ -34,6 +34,28 @@ test "paint and clear a canvas without SDL or a renderer" {
     assert(canvas.revision() == 4)
 }
 
+test "report final logical bounds after portable effects" {
+    var canvas = Canvas()
+    canvas.paint(func(painter:&Painter) {
+        painter.layer([
+            Effect.shadow(Math.Vec2(6.0, 4.0), 3.0, Color.black())
+        ], func(layer:&Painter) {
+            layer.fill(
+                Rect(Math.Vec2(10.0, 12.0), Math.Vec2(20.0, 8.0)),
+                Fill.solid(Color.white())
+            )
+        })
+    })
+    if let bounds = canvas.bounds() {
+        assert(bounds.position == Math.Vec2(10.0, 12.0))
+        assert(bounds.size == Math.Vec2(29.0, 15.0))
+    } else {
+        assert(false)
+    }
+    canvas.clear()
+    assert(canvas.bounds() == null)
+}
+
 test "retain unchanged sibling layer identities and revisions" {
     var canvas = Canvas()
     canvas.paint(func(painter:&Painter) {
