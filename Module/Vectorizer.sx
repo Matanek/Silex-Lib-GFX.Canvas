@@ -633,7 +633,7 @@ func append_fringe(mesh:&Mesh, source:@Math.Vec2[], brush:Brush) {
         let after = outward_normal(next.subtract(current), orientation)
         var direction = before.add(after)
         if direction.length_squared() <= 0.000001 { direction = before }
-        outer.append(current.add(direction.normalized()))
+        outer.append(current.add(direction.normalized().multiply(0.5)))
         index++
     }
     index = 0

@@ -45,6 +45,8 @@ class PreparedCache {
 }
 
 public class Canvas {
+    private static var next_identity:int = 1
+    private let identity:int
     private var command_buffer:CommandBuffer
     private var current_revision:int
     private var cached_preparations:PreparedCache[]
@@ -55,6 +57,8 @@ public class Canvas {
     private var cached_snapshot_framed:bool = false
 
     init() {
+        self.identity = Canvas.next_identity
+        Canvas.next_identity++
         self.command_buffer = CommandBuffer()
         self.current_revision = 1
         self.cached_preparations = []
@@ -83,6 +87,7 @@ public class Canvas {
     }
 
     func commands() Command[] { return self.command_buffer.values() }
+    func id() int { return self.identity }
     func revision() int {
         var commands = self.command_buffer.values()
         return self.current_revision + command_resource_revision(commands)
@@ -135,7 +140,7 @@ public class Canvas {
             if let snapshot = self.cached_snapshot { return snapshot }
         }
         var commands = self.command_buffer.values()
-        var snapshot = Snapshot(Vectorizer.geometry(commands), commands)
+        var snapshot = Snapshot(Vectorizer.geometry(commands), commands, self.identity)
         self.cached_snapshot = snapshot
         self.cached_snapshot_revision = revision
         self.cached_snapshot_width = 0
@@ -159,7 +164,8 @@ public class Canvas {
             Vectorizer.geometry(self.command_buffer.values()),
             self.command_buffer.values(),
             width,
-            height
+            height,
+            self.identity
         )
         self.cached_snapshot = snapshot
         self.cached_snapshot_revision = revision

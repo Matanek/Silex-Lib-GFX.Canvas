@@ -178,6 +178,10 @@ available when a viewport, layout, or export must clip text to a precise frame.
 For successive revisions, pass the previous snapshot as `reuse:previous`.
 Identical text commands retain their revision and glyph coverage while vector
 geometry can change independently.
+`Canvas.id()` remains stable for the drawing's lifetime; `Snapshot.id()` names
+one retained compilation, while `Snapshot.canvas_id()` preserves the source
+Canvas identity across revisions. A cache can therefore replace an obsolete
+revision without confusing two distinct drawings.
 
 A renderer that continuously animates the same drawing uses retained
 preparation instead. `drawing.prepared()` provides the unbounded preparation

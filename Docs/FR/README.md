@@ -183,6 +183,10 @@ ou un export doit découper le texte selon un cadre précis.
 Pour des révisions successives, passez l’ancien snapshot par `reuse:previous`.
 Les commandes texte identiques gardent leur révision et leur couverture de
 glyphes, tandis que la géométrie vectorielle peut changer indépendamment.
+`Canvas.id()` reste stable pendant la vie du dessin ; `Snapshot.id()` identifie
+une compilation précise, tandis que `Snapshot.canvas_id()` conserve l’identité
+du Canvas source entre ses révisions. Un cache peut ainsi remplacer une
+révision obsolète sans confondre deux dessins distincts.
 
 Un renderer qui anime continuellement le même dessin emploie plutôt une
 préparation retenue. `drawing.prepared()` fournit la préparation non bornée

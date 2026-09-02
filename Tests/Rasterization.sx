@@ -725,6 +725,7 @@ test "share retained geometry until its drawing changes" {
     var first = drawing.snapshot(16, 16)
     var second = drawing.snapshot(16, 16)
     assert(C.object_address(first) == C.object_address(second))
+    assert(first.canvas_id() == drawing.id())
 
     drawing.paint(func(painter:&Canvas.Painter) {
         painter.fill(
@@ -734,6 +735,8 @@ test "share retained geometry until its drawing changes" {
     })
     var changed = drawing.snapshot(16, 16)
     assert(C.object_address(first) != C.object_address(changed))
+    assert(changed.id() != first.id())
+    assert(changed.canvas_id() == first.canvas_id())
 }
 
 test "retain text pixels only when text is requested" {
