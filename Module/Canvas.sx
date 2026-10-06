@@ -110,7 +110,7 @@ public class Canvas {
     func vector_geometry() Geometry.Mesh {
         var commands = self.command_buffer.values()
         if !Vectorizer.compatible(commands) {
-            panic("GFX.Canvas vector geometry cannot represent effects or image fills; use content")
+            panic("GFX.Canvas vector geometry cannot represent clips, effects or image fills; use content")
         }
         return Vectorizer.geometry(commands)
     }
@@ -255,6 +255,19 @@ public struct Painter {
     module init(commands:CommandBuffer) { self.commands = commands }
 
     func layer(effects:Effect[], callback:func(&Painter)) {
+        self.record_layer(effects, callback, null)
+    }
+
+    func clip(bounds:Rect, callback:func(&Painter)) {
+        if !Math.is_finite(bounds.position.x) || !Math.is_finite(bounds.position.y) ||
+            !Math.is_finite(bounds.size.x) || !Math.is_finite(bounds.size.y) ||
+            bounds.size.x < 0.0 || bounds.size.y < 0.0 || bounds.radius != 0.0 {
+            panic("GFX.Canvas clip must be a finite rectangle with non-negative size")
+        }
+        self.record_layer([], callback, bounds)
+    }
+
+    private func record_layer(effects:Effect[], callback:func(&Painter), clip:Rect?) {
         let index = self.commands.count()
         var previous = self.commands.previous_layer(index)
         var previous_commands:Command[] = []
@@ -268,7 +281,8 @@ public struct Painter {
             effects,
             commands,
             bounds,
-            previous
+            previous,
+            clip
         )))
     }
 

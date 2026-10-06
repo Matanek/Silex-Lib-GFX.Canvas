@@ -157,9 +157,43 @@ transparents.
 
 Les bornes publiques d'une couche incluent ses formes, l'encre de son texte et
 l'expansion de ses effets. Une rasterisation cadrée découpe seulement le
-résultat final à la racine. Une couche ne possède pas encore de clip local ;
-les ombres internes, les modes de fusion artistiques et les filtres arbitraires
-ne font pas partie de cette surface.
+résultat final à la racine. Les ombres internes, les modes de fusion artistiques
+et les filtres arbitraires ne font pas partie de cette surface.
+
+
+## Découper un groupe
+
+`Painter.clip(rect, callback)` conserve uniquement la partie du groupe située
+dans ce rectangle logique, après évaluation complète de ses couches et effets.
+Le callback conserve les coordonnées du Canvas ; aucune translation implicite.
+
+Ce fragment suppose un Canvas `drawing` déjà créé et les imports `GFX.Canvas`,
+`GFX.Color` et `STD.Math`.
+
+```sx
+drawing.paint(func(painter:&Canvas.Painter) {
+    painter.clip(Canvas.Rect(Math.Vec2(8.0), Math.Vec2(120.0, 60.0)),
+        func(clipped:&Canvas.Painter) {
+            clipped.fill(Canvas.Circle(Math.Vec2(80.0), 64.0), Canvas.Fill.solid(Color.cyan_500()))
+            clipped.text("Silex", Math.Vec2(8.0), Canvas.TextStyle(size:20.0))
+        })
+})
+```
+
+Le rectangle doit être fini, sans rayon et de taille non négative. Zéro masque
+tout ; les clips imbriqués s’intersectent. Le raster exclut les pixels avant
+`ceil(minimum)` et à partir de `ceil(maximum)`. Le callback suivant retrouve son
+contexte initial. `Layer.clip()` et `LayerContent.clip()` exposent cette limite ;
+leurs bornes incluent les effets puis s’intersectent avec elle.
+
+Un mesh seul ne transporte pas le clipping : `vector_geometry_compatible()`
+retourne faux et les accès à la géométrie seule le diagnostiquent. Les renderers
+consomment `Snapshot.content()` pour conserver ordre, couches, clips et effets.
+Les couches de texte et glyphes détachés décrivent leurs sources ; ils ne
+représentent pas à eux seuls les clips et effets de leurs groupes parents.
+Le raster cadré/non cadré, `Surface` et le compositor Scene2D respectent ces groupes.
+Les pixels de texte en cache sont invalidés si une limite de groupe change,
+sans refaire le shaping inchangé.
 
 ## Réutiliser les intentions
 

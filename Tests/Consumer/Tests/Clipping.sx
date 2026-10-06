@@ -1,0 +1,172 @@
+use GFX.Assets.Image
+use GFX.Canvas
+use GFX.Color
+use STD.Math
+
+func alpha(image:@Image, x:int, y:int) uint8 {
+    let pixels = image.pixels()
+    return pixels[(y * image.width() + x) * 4 + 3]
+}
+
+func first_layer(drawing:@Canvas) Canvas.Layer {
+    match drawing.commands()[0] {
+        layer(value) => { return value }
+        else => { panic("expected a clipped layer") }
+    }
+}
+
+test "clip nested commands and leave following commands outside the scope" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.clip(Canvas.Rect(Math.Vec2(4.0), Math.Vec2(8.0)), func(outer:&Canvas.Painter) {
+            outer.clip(Canvas.Rect(Math.Vec2(8.0, 2.0), Math.Vec2(8.0)), func(inner:&Canvas.Painter) {
+                inner.fill(Canvas.Rect(Math.Vec2(), Math.Vec2(20.0)), Canvas.Fill.solid(Color.white()))
+            })
+        })
+        painter.fill(Canvas.Rect(Math.Vec2(1.0), Math.Vec2(1.0)), Canvas.Fill.solid(Color.white()))
+    })
+    let image = drawing.rasterize(20, 20)
+    var y = 0
+    while y < 20 {
+        var x = 0
+        while x < 20 {
+            let visible = (x >= 8 && x < 12 && y >= 4 && y < 10) || (x == 1 && y == 1)
+            assert((alpha(image, x, y) > 0 as uint8) == visible)
+            x++
+        }
+        y++
+    }
+    let bounds = first_layer(drawing).bounds()
+    assert(bounds == Canvas.Rect(Math.Vec2(8.0, 4.0), Math.Vec2(4.0, 6.0)))
+    assert(!drawing.vector_geometry_compatible())
+    var snapshot = drawing.snapshot(20, 20)
+    match snapshot.content()[0] {
+        layer(value) => { assert(value.clip() == Canvas.Rect(Math.Vec2(4.0), Math.Vec2(8.0))) }
+        else => { panic("lost the retained clip") }
+    }
+}
+
+test "clip after child effects so an outside shape can cast an inside shadow" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.clip(Canvas.Rect(Math.Vec2(6.0), Math.Vec2(8.0)), func(clipped:&Canvas.Painter) {
+            clipped.layer([Canvas.Effect.shadow(Math.Vec2(6.0, 0.0), 0.0, Color.white())],
+                func(layer:&Canvas.Painter) {
+                    layer.fill(Canvas.Rect(Math.Vec2(2.0, 8.0), Math.Vec2(2.0)), Canvas.Fill.solid(Color.white()))
+                })
+        })
+    })
+    let image = drawing.rasterize(20, 20)
+    assert(alpha(image, 8, 8) == 255 as uint8)
+    assert(alpha(image, 2, 8) == 0 as uint8)
+    assert(alpha(image, 5, 8) == 0 as uint8)
+    assert(alpha(image, 14, 8) == 0 as uint8)
+}
+
+test "clip images text and paths with an empty intersection" {
+    let image = Image.rgba8(1, 1, [255 as uint8, 255 as uint8, 255 as uint8, 255 as uint8])
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.clip(Canvas.Rect(Math.Vec2(4.0), Math.Vec2(8.0)), func(clipped:&Canvas.Painter) {
+            let shape = Canvas.Rect(Math.Vec2(), Math.Vec2(20.0))
+            clipped.fill(shape, Canvas.Fill.image(Canvas.ImagePaint(image), Canvas.ImageMapping.fit(shape)))
+            clipped.text("Silex", Math.Vec2(), Canvas.TextStyle(size:12.0))
+            var path = Canvas.Path()..move_to(Math.Vec2())..line_to(Math.Vec2(20.0, 20.0))
+            clipped.stroke(path, Canvas.Stroke(Color.white(), 2.0))
+        })
+        painter.clip(Canvas.Rect(Math.Vec2(), Math.Vec2()), func(empty:&Canvas.Painter) {
+            empty.fill(Canvas.Rect(Math.Vec2(), Math.Vec2(20.0)), Canvas.Fill.solid(Color.white()))
+        })
+    })
+    let result = drawing.rasterize(20, 20)
+    assert(alpha(result, 5, 5) > 0 as uint8)
+    assert(alpha(result, 3, 5) == 0 as uint8)
+    assert(alpha(result, 12, 5) == 0 as uint8)
+    assert(drawing.snapshot(20, 20).text_layer().image.width() <= 8)
+}
+
+test "retain clipped layer identity while changing its bounds" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.clip(Canvas.Rect(Math.Vec2(2.0), Math.Vec2(8.0)), func(clipped:&Canvas.Painter) {
+            clipped.fill(Canvas.Rect(Math.Vec2(), Math.Vec2(20.0)), Canvas.Fill.solid(Color.white()))
+        })
+    })
+    var initial = first_layer(drawing)
+    drawing.clear()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.clip(Canvas.Rect(Math.Vec2(2.0), Math.Vec2(4.0)), func(clipped:&Canvas.Painter) {
+            clipped.fill(Canvas.Rect(Math.Vec2(), Math.Vec2(20.0)), Canvas.Fill.solid(Color.white()))
+        })
+    })
+    var changed = first_layer(drawing)
+    assert(initial.id() == changed.id())
+    assert(changed.revision() > initial.revision())
+    assert(changed.bounds() == Canvas.Rect(Math.Vec2(2.0), Math.Vec2(4.0)))
+    assert(alpha(drawing.rasterize(20, 20), 7, 3) == 0 as uint8)
+}
+
+test "invalidate cached text pixels when only the enclosing clip changes" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.clip(Canvas.Rect(Math.Vec2(), Math.Vec2(30.0, 30.0)), func(clipped:&Canvas.Painter) {
+            clipped.text("Silex", Math.Vec2(), Canvas.TextStyle(size:20.0))
+        })
+    })
+    var first = drawing.snapshot(80, 40)
+    let initial = first.text_layer()
+    assert(initial.image.width() > 8)
+    drawing.clear()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.clip(Canvas.Rect(Math.Vec2(), Math.Vec2(8.0, 30.0)), func(clipped:&Canvas.Painter) {
+            clipped.text("Silex", Math.Vec2(), Canvas.TextStyle(size:20.0))
+        })
+    })
+    var changed = drawing.snapshot(80, 40, reuse:first)
+    assert(changed.text_layer().image.width() <= 8)
+    assert(changed.text_revision() != first.text_revision())
+    assert(changed.text_layers()[0].shaping_revision() == first.text_layers()[0].shaping_revision())
+}
+
+test "fractional raster clips and disjoint nesting keep the same half open bounds" {
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) {
+        painter.clip(Canvas.Rect(Math.Vec2(2.25), Math.Vec2(4.5)), func(clipped:&Canvas.Painter) {
+            clipped.fill(Canvas.Rect(Math.Vec2(), Math.Vec2(10.0)), Canvas.Fill.solid(Color.white()))
+            clipped.clip(Canvas.Rect(Math.Vec2(8.0), Math.Vec2(1.0)), func(disjoint:&Canvas.Painter) {
+                disjoint.fill(Canvas.Rect(Math.Vec2(), Math.Vec2(10.0)), Canvas.Fill.solid(Color.white()))
+            })
+        })
+    })
+    let image = drawing.rasterize(10, 10)
+    assert(alpha(image, 2, 4) == 0 as uint8)
+    assert(alpha(image, 3, 4) == 255 as uint8)
+    assert(alpha(image, 6, 4) == 255 as uint8)
+    assert(alpha(image, 7, 4) == 0 as uint8)
+}
+
+func grouped_text(drawing:&Canvas, second:bool) {
+    drawing.paint(func(painter:&Canvas.Painter) {
+        let widths:float[] = [8.0, 30.0]
+        for index, width in widths.indexed() {
+            painter.clip(Canvas.Rect(Math.Vec2(), Math.Vec2(width, 30.0)), func(clipped:&Canvas.Painter) {
+                if (index == 1) == second {
+                    clipped.text("Silex", Math.Vec2(), Canvas.TextStyle(size:20.0))
+                }
+            })
+        }
+    })
+}
+
+test "invalidate text pixels when unchanged text moves between stable clip groups" {
+    var drawing = Canvas()
+    grouped_text(drawing, false)
+    var first = drawing.snapshot(80, 40)
+    assert(first.text_layer().image.width() <= 8)
+    drawing.clear()
+    grouped_text(drawing, true)
+    var changed = drawing.snapshot(80, 40, reuse:first)
+    assert(changed.text_layer().image.width() > 8)
+    assert(changed.text_revision() != first.text_revision())
+    assert(changed.text_layers()[0].shaping_revision() == first.text_layers()[0].shaping_revision())
+}

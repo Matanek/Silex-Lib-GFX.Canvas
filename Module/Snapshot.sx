@@ -24,6 +24,7 @@ public class LayerContent {
     private let source_revision:int
     private let retained_effects:Effect[]
     private let retained_bounds:Rect?
+    private let retained_clip:Rect?
     private var ordered:Content[]
 
     module init(source:@Layer, ordered:Content[]) {
@@ -31,6 +32,7 @@ public class LayerContent {
         self.source_revision = source.revision()
         self.retained_effects = source.effects()
         self.retained_bounds = source.bounds()
+        self.retained_clip = source.clip()
         self.ordered = ordered
     }
 
@@ -38,6 +40,7 @@ public class LayerContent {
     func revision() int { return self.source_revision }
     func effects() Effect[] { return self.retained_effects }
     func bounds() Rect? { return self.retained_bounds }
+    func clip() Rect? { return self.retained_clip }
     func content() Content[] { return self.ordered }
     func content_view() @Content[..] {
         return @self.ordered[0:self.ordered.count()]
@@ -161,7 +164,7 @@ public class Snapshot {
     func vector_geometry_compatible() bool { return self.retained_geometry_compatible }
     func geometry() Mesh {
         if !self.retained_geometry_compatible {
-            panic("GFX.Canvas snapshot geometry cannot represent effects or image fills; use content")
+            panic("GFX.Canvas snapshot geometry cannot represent clips, effects or image fills; use content")
         }
         return self.retained_geometry
     }
@@ -213,7 +216,8 @@ public class Snapshot {
             self.retained_geometry_revision = previous.retained_geometry_revision
         }
         self.retain_text_layers(previous)
-        if !same_text_commands(self.text_commands, previous.text_commands) { return }
+        if !same_text_commands(self.text_commands, previous.text_commands) ||
+            !same_text_groups(self.retained_commands, previous.retained_commands) { return }
         if self.text_width != previous.text_width ||
             self.text_height != previous.text_height
         {
@@ -438,6 +442,43 @@ func ordered_content(
     return result
 }
 
+
+// Flat glyph shaping can be reused across a clip change, but a rasterized text
+// image also depends on the enclosing layers. Keep those two lifetimes distinct.
+func same_text_groups(first:@Command[], second:@Command[]) bool {
+    var left:Layer[] = []
+    var right:Layer[] = []
+    var left_text:Command[] = []
+    var right_text:Command[] = []
+    for command in first {
+        match command {
+            layer(value) => { left.append(value) }
+            text(value) => { left_text.append(command) }
+            else => {}
+        }
+    }
+    for command in second {
+        match command {
+            layer(value) => { right.append(value) }
+            text(value) => { right_text.append(command) }
+            else => {}
+        }
+    }
+    if !same_text_commands(left_text, right_text) || left.count() != right.count() { return false }
+    for index, layer in left.indexed() {
+        if layer.clip() != right[index].clip() { return false }
+        let first_effects = layer.effects()
+        let second_effects = right[index].effects()
+        if first_effects.count() != second_effects.count() { return false }
+        for effect_index, effect in first_effects.indexed() {
+            if effect != second_effects[effect_index] { return false }
+        }
+        var first_nested = layer.commands()
+        var second_nested = right[index].commands()
+        if !same_text_groups(first_nested, second_nested) { return false }
+    }
+    return true
+}
 
 func same_text_commands(first:@Command[], second:@Command[]) bool {
     if first.count() != second.count() { return false }

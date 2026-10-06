@@ -45,7 +45,7 @@ func compatible(commands:@Command[]) bool {
             fill_circle(value) => { if value.style.is_image() { return false } }
             fill_path(value) => { if value.style.is_image() { return false } }
             layer(value) => {
-                if value.effects().count() > 0 { return false }
+                if value.effects().count() > 0 || value.clip() != null { return false }
                 var nested = value.commands()
                 if !compatible(nested) { return false }
             }

@@ -74,6 +74,19 @@ package func logical_bounds(commands:@Command[], effects:@Effect[] = []) Rect? {
     return null
 }
 
+package func clipped_bounds(bounds:Rect?, clip:Rect?) Rect? {
+    if let value = bounds {
+        if let limit = clip {
+            let start = value.position.maximum(limit.position)
+            let end = value.position.add(value.size).minimum(limit.position.add(limit.size))
+            if end.x <= start.x || end.y <= start.y { return null }
+            return Rect(start, end.subtract(start))
+        }
+        return value
+    }
+    return null
+}
+
 func command_bounds(command:@Command) Bounds? {
     return match command {
         fill_rect(value) => optional_bounds(Bounds(
@@ -287,7 +300,12 @@ func text_commands_bounds(commands:@Command[]) Bounds? {
                 var nested = value.commands()
                 if let current = text_commands_bounds(nested) {
                     let effects = value.effects()
-                    result = include_bounds(result, effect_bounds(current, effects))
+                    let expanded = effect_bounds(current, effects)
+                    if let clipped = clipped_bounds(
+                        Rect(expanded.minimum, expanded.maximum.subtract(expanded.minimum)), value.clip()) {
+                        result = include_bounds(result, Bounds(minimum:clipped.position,
+                            maximum:clipped.position.add(clipped.size)))
+                    }
                 }
             }
             else => {}
@@ -417,7 +435,7 @@ func draw_commands(
             layer(value) => {
                 var nested = value.commands()
                 let effects = value.effects()
-                if effects.count() == 0 {
+                if effects.count() == 0 && value.clip() == null {
                     draw_commands(
                         address,
                         width,
@@ -448,7 +466,12 @@ func draw_commands(
                         text_scale,
                         layer_origin
                     )
-                    let effected = apply_effects(isolated, effects, text_scale)
+                    var effected = apply_effects(isolated, effects, text_scale)
+                    if let clip = value.clip() {
+                        effected = mask_rectangle(effected, Rect(
+                            clip.position.multiply(text_scale).subtract(layer_origin),
+                            clip.size.multiply(text_scale)))
+                    }
                     composite_image(
                         address,
                         width,
@@ -460,6 +483,29 @@ func draw_commands(
             }
         }
     }
+}
+
+func mask_rectangle(image:Image, clip:Rect) Image {
+    let width = image.width()
+    let height = image.height()
+    let left = Math.ceil(clip.position.x) as int
+    let top = Math.ceil(clip.position.y) as int
+    let right = Math.ceil(clip.position.x + clip.size.x) as int
+    let bottom = Math.ceil(clip.position.y + clip.size.y) as int
+    var pixels = image.packed_pixels()
+    let address = C.address_bits(C.mutable_string_pointer(pixels))
+    var y = 0
+    while y < height {
+        var x = 0
+        while x < width {
+            if x < left || x >= right || y < top || y >= bottom {
+                let cleared = C.store<uint32>(address, ((y * width + x) * 4) as uint, 0 as uint32)
+            }
+            x++
+        }
+        y++
+    }
+    return Image.packed_rgba8(width, height, pixels)
 }
 
 func translated_polyline(source:Polyline, origin:Math.Vec2) Polyline {

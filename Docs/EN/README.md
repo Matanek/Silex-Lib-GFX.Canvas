@@ -152,9 +152,42 @@ evaluated from the inside out. Blur and composition use premultiplied alpha so
 transparent edges do not acquire stray colors.
 
 A layer's public bounds include its shapes, text ink, and effect expansion. A
-framed rasterization clips only the final root result. A layer does not yet
-have a local clip; inner shadows, artistic blend modes, and arbitrary filters
-are outside this surface.
+framed rasterization clips only the final root result. Inner shadows, artistic
+blend modes, and arbitrary filters are outside this surface.
+
+
+## Clip a group
+
+`Painter.clip(rect, callback)` retains only the part of the group inside that
+logical rectangle, after fully evaluating its nested layers and effects. The
+callback keeps Canvas coordinates; it does not introduce a translation.
+
+This fragment assumes an existing Canvas named `drawing` and imports for
+`GFX.Canvas`, `GFX.Color` and `STD.Math`.
+
+```sx
+drawing.paint(func(painter:&Canvas.Painter) {
+    painter.clip(Canvas.Rect(Math.Vec2(8.0), Math.Vec2(120.0, 60.0)),
+        func(clipped:&Canvas.Painter) {
+            clipped.fill(Canvas.Circle(Math.Vec2(80.0), 64.0), Canvas.Fill.solid(Color.cyan_500()))
+            clipped.text("Silex", Math.Vec2(8.0), Canvas.TextStyle(size:20.0))
+        })
+})
+```
+
+The rectangle must be finite, non-rounded and have non-negative dimensions.
+Zero hides everything; nested clips intersect. The raster excludes pixels
+before `ceil(minimum)` and from `ceil(maximum)` onward. Following callbacks
+recover their original context. `Layer.clip()` and `LayerContent.clip()` expose
+the limit; bounds include effects before intersecting with it.
+
+A mesh alone cannot represent clipping: `vector_geometry_compatible()` returns
+false and geometry-only access reports an error. Renderers consume
+`Snapshot.content()` to preserve order, layers, clips and effects. Detached text
+layers and glyphs describe their sources; they do not on their own represent
+parent-group clips or effects. Framed/unframed rasters, `Surface`, and the
+Scene2D compositor respect these groups. Changing a group clip invalidates
+cached text pixels while preserving unchanged glyph shaping.
 
 ## Reuse drawing intentions
 

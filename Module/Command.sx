@@ -54,19 +54,22 @@ public class Layer {
     private let current_effects:Effect[]
     private var current_commands:Command[]
     private let current_bounds:Rect?
+    private let current_clip:Rect?
 
     private init(
         identity:int,
         revision:int,
         effects:Effect[],
         commands:Command[],
-        bounds:Rect?
+        bounds:Rect?,
+        clip:Rect?
     ) {
         self.current_identity = identity
         self.current_revision = revision
         self.current_effects = effects
         self.current_commands = commands
         self.current_bounds = bounds
+        self.current_clip = clip
     }
 
     func id() int { return self.current_identity }
@@ -75,10 +78,11 @@ public class Layer {
     }
     func effects() Effect[] { return self.current_effects }
     func commands() Command[] { return self.current_commands }
+    func clip() Rect? { return self.current_clip }
     func bounds() Rect? {
-        return GFX.Canvas.Rasterizer.logical_bounds(
-            self.current_commands,
-            self.current_effects
+        return GFX.Canvas.Rasterizer.clipped_bounds(
+            GFX.Canvas.Rasterizer.logical_bounds(self.current_commands, self.current_effects),
+            self.current_clip
         )
     }
 
@@ -86,10 +90,11 @@ public class Layer {
         effects:Effect[],
         commands:Command[],
         bounds:Rect?,
-        previous:Layer? = null
+        previous:Layer? = null,
+        clip:Rect? = null
     ) Layer {
         if var retained = previous {
-            if same_effects(effects, retained.current_effects) &&
+            if clip == retained.current_clip && same_effects(effects, retained.current_effects) &&
                 same_commands(commands, retained.current_commands)
             {
                 return retained
@@ -99,12 +104,13 @@ public class Layer {
                 retained.current_revision + 1,
                 effects,
                 commands,
-                bounds
+                bounds,
+                clip
             )
         }
         let identity = Layer.next_identity
         Layer.next_identity++
-        return Layer(identity, 1, effects, commands, bounds)
+        return Layer(identity, 1, effects, commands, bounds, clip)
     }
 }
 
@@ -207,7 +213,7 @@ func same_layer(first:@Layer, second:@Layer) bool {
     let second_effects = second.effects()
     var first_commands = first.commands()
     var second_commands = second.commands()
-    return same_effects(first_effects, second_effects) &&
+    return first.clip() == second.clip() && same_effects(first_effects, second_effects) &&
         same_commands(first_commands, second_commands)
 }
 
