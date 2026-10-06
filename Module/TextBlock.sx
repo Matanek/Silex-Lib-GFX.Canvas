@@ -1,8 +1,7 @@
 use GFX.Canvas.Styles.TextStyle
-use GFX.Canvas.Styles.TextWeight
-use GFX.Canvas.Rasterizer
+use GFX.Canvas.TextRuns.text_runs
+use STD.Math
 use GFX.Font as VectorFont
-use STD.Text as StandardText
 
 // Stable retained text content. Its identity lets renderers cache shaping and
 // GPU instances independently from placement, scrolling and clipping.
@@ -13,6 +12,8 @@ public class TextBlock {
     private var current_value:str
     private var current_style:TextStyle
     private var current_runs:VectorFont.GlyphRun[]
+    private var current_offsets:Math.Vec2[] = []
+    private var current_width:float = 0.0
     private var prepared:bool
 
     init(value:str, style:TextStyle = TextStyle()) {
@@ -42,37 +43,24 @@ public class TextBlock {
 
     func prepare() {
         if self.prepared { return }
-        var instance = self.current_style.typeface().instance(
-            self.current_style.size,
-            block_text_weight_key(self.current_style.weight),
-            self.current_style.variations
-        )
-        for line in StandardText.split(self.current_value, "\n") {
-            if let advance = self.current_style.fixed_advance {
-                self.current_runs.append(Rasterizer.fixed_grid_run(
-                    instance,
-                    line,
-                    advance
-                ))
-            } else {
-                match instance.shape(line) {
-                    failure(error) => {
-                        panic("GFX.Canvas could not prepare retained text: " + error.detail)
-                    }
-                    success(run) => { self.current_runs.append(run) }
-                }
-            }
-        }
+        var layout = text_runs(self.current_value, self.current_style)
+        self.current_runs = layout.runs
+        self.current_offsets = layout.offsets
+        self.current_width = layout.width
         self.prepared = true
+    }
+
+    module func run_offsets() Math.Vec2[] {
+        self.prepare()
+        return self.current_offsets
+    }
+    module func run_width() float {
+        self.prepare()
+        return self.current_width
     }
 
     func glyph_runs() VectorFont.GlyphRun[] {
         self.prepare()
         return self.current_runs
     }
-}
-
-func block_text_weight_key(weight:TextWeight) int {
-    if weight == TextWeight.bold { return 1 }
-    return 0
 }

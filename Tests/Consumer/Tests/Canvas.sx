@@ -19,6 +19,80 @@ struct ConsumerSession:Canvas.Session {
     func accepts_text_input() bool { return false }
 }
 
+test "bundled default keeps letters and resolves missing arrows in retained and fixed text" {
+    var primary = Canvas.Font.default()
+    var mono = Canvas.Font.monospace()
+    assert(!primary.face().supports(0x2192 as uint32))
+    assert(mono.face().supports(0x2192 as uint32))
+    var style = Canvas.TextStyle(size:18.0)
+    var block = Canvas.TextBlock("A→B\nC→D", style)
+    var drawing = Canvas()
+    drawing.paint(func(painter:&Canvas.Painter) { painter.text_block(block, Math.Vec2(2.0)) })
+    var layers = drawing.prepared(160, 60).text_layers()
+    assert(layers.count() == 1)
+    var layer = layers[0]
+    var runs = layer.glyph_runs()
+    assert(runs.count() == 6)
+    assert(runs[0].instance().face().identity() == primary.face().identity())
+    assert(runs[1].instance().face().identity() == mono.face().identity())
+    for run in runs { assert(run.missing_glyph_count() == 0) }
+    var coverage = layer.coverage_runs()
+    assert(coverage[0].origin.y == coverage[1].origin.y)
+    assert(coverage[1].origin.y == coverage[2].origin.y)
+    assert(coverage[3].origin.y > coverage[0].origin.y)
+    assert(runs[1].glyphs()[0].origin_x > runs[0].glyphs()[0].origin_x)
+    let measured = drawing.measure_text("A→B", style)
+    let expected = runs[2].metrics().advance.x
+    assert(Math.abs(measured.width - Math.ceil(expected)) < 0.01)
+    match layer.vector_outlines() {
+        failure(error) => { panic(error.detail) }
+        success(outlines) => {
+            assert(outlines.count() == 6)
+            assert(outlines[0].baseline.y == outlines[1].baseline.y)
+            assert(Math.abs(outlines[1].baseline.x - coverage[1].origin.x) < 1.0)
+            assert(outlines[0].face_identity == primary.face().identity())
+            assert(outlines[1].face_identity == mono.face().identity())
+        }
+    }
+    assert(drawing.rasterize(160, 60).pixels().count() == 160 * 60 * 4)
+    var fixed = Canvas.TextStyle(size:18.0, fixed_advance:12.0)
+    var cells = Canvas()
+    cells.paint(func(painter:&Canvas.Painter) { painter.text("A→B", Math.Vec2(), fixed) })
+    var grid = cells.prepared(60, 30).text_layers()[0].coverage_runs()
+    assert(grid.count() == 3)
+    assert(grid[0].glyph_run.glyphs()[0].origin_x == 0.0)
+    assert(grid[1].glyph_run.glyphs()[0].origin_x == 12.0)
+    assert(grid[2].glyph_run.glyphs()[0].origin_x == 24.0)
+    assert(cells.measure_text("A→B", fixed).width == 36.0)
+
+    var arrow = Canvas()
+    arrow.paint(func(painter:&Canvas.Painter) { painter.text("→", Math.Vec2(), style) })
+    let primary_baseline = Math.ceil(runs[0].instance().metrics().ascender) as int
+    let mono_baseline = Math.ceil(runs[1].instance().metrics().ascender) as int
+    var reference = Canvas()
+    reference.paint(func(painter:&Canvas.Painter) {
+        painter.text("→", Math.Vec2(0.0, (primary_baseline - mono_baseline) as float),
+            Canvas.TextStyle(size:18.0, font:mono))
+    })
+    let actual_image = arrow.rasterize(24, 32)
+    let reference_image = reference.rasterize(24, 32)
+    let actual_pixels = actual_image.pixels()
+    assert(actual_image.packed_pixels() == reference_image.packed_pixels())
+    var ink = false
+    for pixel in actual_pixels { if pixel != 0 as uint8 { ink = true } }
+    assert(ink)
+
+    var clusters = Canvas.TextBlock("Á→", style).glyph_runs()
+    assert(clusters.count() == 2)
+    assert(clusters[0].text() == "Á")
+    assert(clusters[1].text() == "→")
+    var explicit = Canvas.Font(primary.face())
+    var untouched = Canvas.TextBlock("→", Canvas.TextStyle(size:18.0, font:explicit)).glyph_runs()
+    assert(untouched.count() == 1 && untouched[0].missing_glyph_count() == 1)
+    block.replace("plain")
+    assert(block.glyph_runs().count() == 1)
+}
+
 func required_face(result:Result<VectorFont.Face, VectorFont.Error>) VectorFont.Face {
     match result {
         failure(error) => { panic(error.detail) }

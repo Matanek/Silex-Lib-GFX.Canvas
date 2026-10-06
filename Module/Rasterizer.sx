@@ -18,6 +18,7 @@ use GFX.Canvas.Styles.TextAlignment
 use GFX.Canvas.Styles.TextMetrics
 use GFX.Canvas.Styles.TextStyle
 use GFX.Canvas.Styles.TextWeight
+use GFX.Canvas.TextRuns.text_runs
 use GFX.Canvas.Font.Font
 use GFX.Canvas.Font.TextRaster
 use GFX.Canvas.Font.CachedTextMetrics
@@ -1414,20 +1415,11 @@ func measure_font_text(value:@str, style:@TextStyle, font:Font) TextMetrics {
     if cached = font.cached_metrics(instance, owned_value) {
         return TextMetrics(width:cached.width, height:cached.height, lines:cached.lines)
     }
-    let lines = StandardText.split(owned_value, "\n")
-    var width = 0.0
-    for line in lines {
-        var run = shaped(instance, line)
-        var line_width = Math.ceil(run.metrics().advance.x) as int as float
-        if instance.synthesis().embolden { line_width += 1.0 }
-        width = Math.max(width, line_width)
-    }
-    var line_height = Math.ceil(instance.metrics().line_height) as int as float
-    if let explicit = style.line_height { line_height = explicit }
+    var layout = text_runs(owned_value, style)
     let metrics = TextMetrics(
-        width:width,
-        height:line_height * lines.count() as float,
-        lines:lines.count()
+        width:layout.width,
+        height:layout.line_height * layout.lines as float,
+        lines:layout.lines
     )
     font.retain_metrics(instance, owned_value, CachedTextMetrics(
         width:metrics.width,
@@ -1449,50 +1441,21 @@ func draw_font_text(
     clip:Rect? = null
 ) {
     if value == "" { return }
-    if let advance = style.fixed_advance {
-        draw_fixed_advance_text(
-            address,
-            width,
-            height,
-            value,
-            position,
-            style,
-            font,
-            advance,
-            density,
-            clip
-        )
-        return
-    }
-    let metrics = measure_font_text(value, style, font)
+    var layout = text_runs(value, style)
     var origin_x = position.x
-    if style.alignment == TextAlignment.center { origin_x -= metrics.width * density * 0.5 }
-    if style.alignment == TextAlignment.end { origin_x -= metrics.width * density }
-    var instance = font.instance(
-        style.size,
-        font_weight_key(style.weight),
-        style.variations
-    )
-    var line_height = Math.ceil(instance.metrics().line_height) as int as float
-    if let explicit = style.line_height { line_height = explicit }
-    line_height *= density
-    let lines = StandardText.split(value, "\n")
-    var line_index = 0
-    while line_index < lines.count() {
-        var run = shaped(instance, lines[line_index])
+    if style.alignment == TextAlignment.center { origin_x -= layout.width * density * 0.5 }
+    if style.alignment == TextAlignment.end { origin_x -= layout.width * density }
+    var primary = font.instance(style.size, font_weight_key(style.weight), style.variations)
+    let baseline = Math.ceil(primary.metrics().ascender * density as float64) as int as float
+    for index, retained in layout.runs.indexed() {
+        var run = retained
+        let run_baseline = Math.ceil(run.instance().metrics().ascender * density as float64) as int as float
         draw_glyph_run(
-            address,
-            width,
-            height,
-            run,
-            font,
-            origin_x,
-            position.y + line_index as float * line_height,
-            style.color,
-            density,
-            clip
+            address, width, height, run, font,
+            origin_x + layout.offsets[index].x * density,
+            position.y + layout.offsets[index].y * density + baseline - run_baseline,
+            style.color, density, clip
         )
-        line_index++
     }
 }
 
@@ -1645,55 +1608,6 @@ func fixed_advance_metrics(
 }
 
 func copied_text(value:@str) str { return value }
-
-func draw_fixed_advance_text(
-    address:uint,
-    width:int,
-    height:int,
-    value:str,
-    position:Math.Vec2,
-    style:TextStyle,
-    font:Font,
-    advance:float,
-    density:float,
-    clip:Rect? = null
-) {
-    let metrics = fixed_advance_metrics(
-        value,
-        advance,
-        style,
-        font
-    )
-    var origin_x = position.x
-    if style.alignment == TextAlignment.center { origin_x -= metrics.width * density * 0.5 }
-    if style.alignment == TextAlignment.end { origin_x -= metrics.width * density }
-    var instance = font.instance(
-        style.size,
-        font_weight_key(style.weight),
-        style.variations
-    )
-    var line_height = Math.ceil(instance.metrics().line_height) as int as float
-    if let explicit = style.line_height { line_height = explicit }
-    line_height *= density
-    let lines = StandardText.split(value, "\n")
-    var line_index = 0
-    while line_index < lines.count() {
-        var run = fixed_grid_run(instance, lines[line_index], advance)
-        draw_glyph_run(
-            address,
-            width,
-            height,
-            run,
-            font,
-            origin_x,
-            position.y + line_index as float * line_height,
-            style.color,
-            density:density,
-            clip:clip
-        )
-        line_index++
-    }
-}
 
 func max_int(first:int, second:int) int {
     if first > second { return first }

@@ -44,6 +44,15 @@ ou envelopper une `GFX.Font.Face` déjà validée avec `Canvas.Font(face)`. Canv
 utilise les runs et couvertures hintées de GFX.Font sans exposer de handle
 natif.
 
+La façade par défaut conserve Noto Sans pour le texte couvert. Pour un graphème
+absent de cette face et entièrement couvert par Noto Sans Mono embarqué, Canvas
+emploie cette face de secours. Le graphème reste entier et les runs adjacents
+d'une même face restent groupés. Mesure, raster, grille fixe et couches retenues
+partagent ces positions et la baseline de la police principale. `face()` désigne
+la face principale ; les polices construites explicitement n'ajoutent pas de
+secours. Un caractère absent des deux faces reste manquant : ce mécanisme ne
+promet pas une couverture Unicode universelle ni une composition bidi mixte.
+
 `Painter.text(..., clip:Canvas.Rect(...))` attache un découpage rectangulaire
 aligné sur les axes à cette commande texte. Les renderers raster et retenus
 peuvent ainsi conserver une ligne d'overscan jusqu'à son dernier pixel visible,
@@ -250,14 +259,21 @@ shader au lieu de tesseller à nouveau les contours ronds sur le CPU.
 
 `Snapshot.text_layers()` donne à chaque commande de texte une identité stable,
 son `GlyphRun` canonique et sa propre image de couverture paresseuse.
-`glyph_run()` retourne la ligne homogène ; `glyph_runs()` couvre le multiligne
-et `vector_outlines()` conserve les mêmes glyph IDs, clusters et positions pour
+`glyph_run()` retourne une seule ligne homogène ; `glyph_runs()` couvre le
+multiligne et les lignes utilisant plusieurs faces. `vector_outlines()` conserve
+les mêmes glyph IDs, clusters et positions pour
 un renderer vectoriel. `coverage_runs(density)` expose les mêmes runs avec leur
 origine physique arrondie, sans rastériser : un renderer peut consulter son
 atlas avant de demander la couverture d'un glyphe absent. Un renderer peut donc
 transférer seulement le libellé modifié. Le cache Canvas direct de bitmaps
 hintés est borné à 2 048 emplacements et 16 Mio,
 en plus des budgets natifs de GFX.Font.
+
+`TextGlyphPlacement.face_identity` identifie la face du contour et `embolden`
+indique sa synthèse grasse. Un cache vectoriel distingue les glyph IDs de faces
+différentes. `outline_identity` identifie les contours normalisés de la face
+avec ses variations et synthèses, indépendamment de la taille du texte. Cette
+identité est opaque et peut servir de clé de cache.
 
 `TextLayer.shaping_revision()` ne change que lorsque le texte, la face, la
 taille, les variations ou le placement typographique changent. Un renderer

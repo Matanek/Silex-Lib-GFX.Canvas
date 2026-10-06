@@ -43,6 +43,14 @@ facades. An application can also supply a path, encoded bytes, or wrap an
 already validated `GFX.Font.Face` with `Canvas.Font(face)`. Canvas consumes
 GFX.Font runs and hinted coverage without exposing a native handle.
 
+The default facade keeps Noto Sans for covered text. For a grapheme absent from
+that face and fully covered by bundled Noto Sans Mono, Canvas uses the fallback
+face. Graphemes stay whole and adjacent runs using the same face stay grouped.
+Measurement, rasterization, fixed grids and retained layers share these positions
+and the primary font baseline. `face()` identifies the primary face; explicitly
+constructed fonts do not add a fallback. Characters absent from both faces remain
+missing: this does not promise universal Unicode coverage or mixed bidi composition.
+
 `Painter.text(..., clip:Canvas.Rect(...))` attaches an axis-aligned rectangular
 clip to that text command. Raster and retained renderers can therefore keep an
 overscan line alive until its last visible pixel while preventing it from
@@ -242,14 +250,20 @@ contours on the CPU.
 
 `Snapshot.text_layers()` gives every text command a stable identity, its
 canonical `GlyphRun`, and its own lazy coverage image. `glyph_run()` returns a
-homogeneous line, `glyph_runs()` covers multiline text, and
-`vector_outlines()` preserves the same glyph IDs, clusters, and positions for
+homogeneous line. `glyph_runs()` covers multiline text and lines using multiple
+faces. `vector_outlines()` preserves the same glyph IDs, clusters, and positions for
 a vector renderer. `coverage_runs(density)` exposes the same runs with their
 rounded physical origin without rasterizing, so a renderer can consult its
 atlas before requesting a missing glyph's coverage. A renderer can therefore
 upload only the changed label. Canvas’s direct hinted-bitmap cache is bounded
 to 2,048 slots and 16 MiB in addition to
 GFX.Font’s native budgets.
+
+`TextGlyphPlacement.face_identity` identifies the outline face and `embolden`
+indicates synthetic bold. Vector caches distinguish glyph IDs from different
+faces. `outline_identity` identifies normalized outlines with their face,
+variations and synthesis independently of text size. It is opaque and can be
+used as a cache key.
 
 `TextLayer.shaping_revision()` changes only when text, face, size, variations,
 or typographic placement changes. A retained renderer can therefore read

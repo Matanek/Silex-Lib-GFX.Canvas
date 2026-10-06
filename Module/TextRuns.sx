@@ -1,0 +1,110 @@
+use GFX.Canvas.Font.Font
+use GFX.Canvas.Styles.TextStyle
+use GFX.Canvas.Styles.TextWeight
+use GFX.Canvas.Rasterizer
+use GFX.Font as VectorFont
+use STD.Math
+use STD.Text as StandardText
+use STD.Text.Grapheme
+use STD.Text.UTF8
+
+module struct TextRuns {
+    var runs:VectorFont.GlyphRun[] = []
+    var offsets:Math.Vec2[] = []
+    var width:float = 0.0
+    var line_height:float = 0.0
+    var lines:int = 0
+}
+
+struct Segment {
+    var instance:VectorFont.Instance
+    var text:str
+}
+
+// Shape only when retained text or its style changes. Covered lines keep one
+// homogeneous run; fallback splits whole graphemes and groups adjacent faces.
+module func text_runs(value:str, style:@TextStyle) TextRuns {
+    var font = style.typeface()
+    var weight = 0
+    if style.weight == TextWeight.bold { weight = 1 }
+    var variations:VectorFont.Variation[] = []
+    for variation in style.variations { variations.append(variation) }
+    var instance = font.instance(style.size, weight, variations)
+    var result = TextRuns()
+    result.line_height = Math.ceil(instance.metrics().line_height) as int as float
+    if let explicit = style.line_height { result.line_height = explicit }
+    var line_index = 0
+    for line in StandardText.split(value, "\n") {
+        var original = shape_run(instance, line, style.fixed_advance)
+        var segments:Segment[] = []
+        if original.missing_glyph_count() > 0 {
+            if var fallback = font.fallback() {
+                var replacement = fallback.instance(style.size, weight)
+                for cluster in Grapheme.split(line) {
+                    var selected = instance
+                    if !covers(instance.face(), cluster) && covers(replacement.face(), cluster) {
+                        selected = replacement
+                    }
+                    let last = segments.count() - 1
+                    if last >= 0 && segments[last].instance == selected {
+                        var previous = segments[last]
+                        previous.text += cluster
+                        segments.replace(last, previous)
+                    } else {
+                        segments.append(Segment(instance:selected, text:cluster))
+                    }
+                }
+            }
+        }
+        var x:float64 = 0.0
+        if segments.count() == 0 {
+            result.runs.append(original)
+            result.offsets.append(Math.Vec2(0.0, line_index as float * result.line_height))
+            x = original.metrics().advance.x
+        } else {
+            for segment in segments {
+                var run = shape_run(segment.instance, segment.text, style.fixed_advance)
+                let advance = run.metrics().advance.x
+                result.runs.append(positioned_run(run, x))
+                result.offsets.append(Math.Vec2(0.0, line_index as float * result.line_height))
+                x += advance
+            }
+        }
+        var width = Math.ceil(x) as int as float
+        if style.fixed_advance == null && instance.synthesis().embolden { width += 1.0 }
+        result.width = Math.max(result.width, width)
+        line_index++
+    }
+    result.lines = line_index
+    return result
+}
+
+func covers(face:VectorFont.Face, cluster:str) bool {
+    for scalar in UTF8.scalars(cluster) {
+        if !face.supports(scalar) { return false }
+    }
+    return true
+}
+
+func shape_run(instance:VectorFont.Instance, value:str, advance:float?) VectorFont.GlyphRun {
+    if let fixed = advance { return Rasterizer.fixed_grid_run(instance, value, fixed) }
+    match instance.shape(value) {
+        failure(error) => { panic("GFX.Canvas could not shape text: " + error.detail) }
+        success(run) => { return run }
+    }
+}
+
+// Place each face run at its line origin without narrowing font coordinates.
+// A whole-run group translates ink while preserving every glyph's cluster.
+func positioned_run(run:VectorFont.GlyphRun, x:float64) VectorFont.GlyphRun {
+    if x == 0.0 || run.glyph_count() == 0 { return run }
+    var glyphs = run.glyphs()
+    match run.place_clusters(
+        [0],
+        [VectorFont.Position(x:glyphs[0].origin_x + x, y:glyphs[0].origin_y)],
+        VectorFont.Position(x:run.metrics().advance.x + x, y:run.metrics().advance.y)
+    ) {
+        failure(error) => { panic("GFX.Canvas could not compose font runs: " + error.detail) }
+        success(placed) => { return placed }
+    }
+}

@@ -20,6 +20,7 @@ public class Font {
     private static var bundled_default:Font? = null
     private static var bundled_monospace:Font? = null
     private var face_value:VectorFont.Face
+    private var fallback_value:Font? = null
     private var instance_sizes:float[]
     private var instance_weights:int[]
     private var instance_variations:VectorFont.Variation[][]
@@ -121,6 +122,7 @@ public class Font {
     static func default() Font {
         if let cached = Font.bundled_default { return cached }
         var font = Font(decoded_face(VectorFont.Face.default()))
+        font.fallback_value = Font.monospace()
         Font.bundled_default = font
         return font
     }
@@ -135,6 +137,7 @@ public class Font {
     static func load(path:str) Font { return Font(path) }
 
     func face() VectorFont.Face { return self.face_value }
+    module func fallback() Font? { return self.fallback_value }
 
     module func instance(
         size:float,
