@@ -1,3 +1,5 @@
+use GFX.Window.Cursor
+use GFX.Window
 use GFX.Canvas
 use GFX.Assets.Image
 use GFX.Color
@@ -16,6 +18,7 @@ struct ConsumerSession:Canvas.Session {
     func drawing(width:int, height:int) Canvas { return Canvas() }
     func update(delta:float) bool { return false }
     func handle(event:@Input.Event) bool { return false }
+    func pointer_cursor() Cursor { return Cursor.standard }
     func accepts_text_input() bool { return false }
 }
 
@@ -202,9 +205,10 @@ test "mutate retained path and text resources through the public Canvas API" {
 }
 
 test "consume the interactive Canvas session contract" {
-    var session = ConsumerSession()
+    var session:Canvas.Session = ConsumerSession()
     assert(!session.update(0.016))
     assert(!session.accepts_text_input())
+    assert(session.pointer_cursor() == Cursor.standard)
     assert(session.drawing(32, 24).command_count() == 0)
 }
 

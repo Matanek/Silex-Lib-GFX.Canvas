@@ -331,6 +331,7 @@ class Preview:Canvas.Session {
     func update(delta:float) bool { return advance(delta) }
     func handle(event:@GFX.Input.Event) bool { return interact(event) }
     func accepts_text_input() bool { return editing() }
+    func pointer_cursor() GFX.Window.Cursor { return GFX.Window.Cursor.standard }
 }
 ```
 
@@ -345,3 +346,12 @@ for faces, shaping, outlines, and hinted coverage. Its remaining SDL3 provider
 only serves existing Canvas surfaces and composes `GFX.SDL3` without
 redistributing SDL3. GFX.Font carries its own macOS ARM64, Linux x64, Windows
 x64, and Windows ARM64 artifact matrix.
+
+## Interactive session migration
+
+A `Canvas.Session` implementation now provides
+`pointer_cursor() GFX.Window.Cursor`. Return `GFX.Window.Cursor.standard` to
+retain the arrow; a UI host forwards the method from its runtime or
+`UI.Session`. This query is independent of drawing invalidation. Viewer applies
+the intent after events even when the drawing is unchanged. Other Canvas
+producers (fixed value, builder or animation) keep their API.

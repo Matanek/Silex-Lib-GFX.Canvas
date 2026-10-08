@@ -343,6 +343,7 @@ class Preview:Canvas.Session {
     func update(delta:float) bool { return advance(delta) }
     func handle(event:@GFX.Input.Event) bool { return interact(event) }
     func accepts_text_input() bool { return editing() }
+    func pointer_cursor() GFX.Window.Cursor { return GFX.Window.Cursor.standard }
 }
 ```
 
@@ -357,3 +358,13 @@ GFX.Font pour les faces, le shaping, les contours et les couvertures hintées.
 Son provider SDL3 restant sert uniquement les surfaces Canvas existantes et
 compose `GFX.SDL3` sans redistribuer SDL3. GFX.Font porte sa propre matrice
 d’artefacts macOS ARM64, Linux x64, Windows x64 et Windows ARM64.
+
+## Migration des sessions interactives
+
+Une implémentation de `Canvas.Session` fournit maintenant
+`pointer_cursor() GFX.Window.Cursor`. Retournez `GFX.Window.Cursor.standard`
+pour conserver la flèche ; un hôte UI relaie la méthode de son runtime ou de
+`UI.Session`. Cette lecture est indépendante de l’invalidation du dessin.
+Viewer applique l’intention après les événements, même si le dessin reste
+inchangé. Les autres producteurs Canvas (valeur fixe, builder ou animation)
+conservent leur API.

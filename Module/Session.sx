@@ -1,5 +1,6 @@
 use GFX.Canvas.Canvas.Canvas
 use GFX.Input.Events
+use GFX.Window
 
 // A platform-neutral interactive source of Canvas drawings. The owner keeps
 // its state; a presenter such as GFX.Viewer only drives this contract.
@@ -8,6 +9,7 @@ public protocol Session {
     func update(delta:float) bool
     func handle(event:@Events.Event) bool
     func accepts_text_input() bool
+    func pointer_cursor() Window.Cursor
 }
 
 // Keeps the protocol's dynamic table complete even when a consumer only uses
@@ -17,4 +19,5 @@ package struct EmptySession:Session {
     func update(delta:float) bool { return false }
     func handle(event:@Events.Event) bool { return false }
     func accepts_text_input() bool { return false }
+    func pointer_cursor() Window.Cursor { return Window.Cursor.standard }
 }
