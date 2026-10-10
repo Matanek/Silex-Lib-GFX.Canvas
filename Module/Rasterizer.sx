@@ -1670,7 +1670,7 @@ func shaped(
     value:str,
     options:VectorFont.ShapeOptions = VectorFont.ShapeOptions()
 ) VectorFont.GlyphRun {
-    match instance.shape(value, options) {
+    match (try instance.shape(value, options)) {
         failure(error) => { panic("GFX.Canvas could not shape text: " + error.detail) }
         success(run) => { return run }
     }
@@ -1700,11 +1700,11 @@ func fixed_grid_run(
         VectorFont.Feature("calt", 0),
         VectorFont.Feature("kern", 0)
     ]))
-    match run.place_clusters(
+    match (try run.place_clusters(
         starts,
         origins,
         VectorFont.Position(x:column as float64 * advance as float64, y:0.0)
-    ) {
+    )) {
         failure(error) => { panic("GFX.Canvas could not place fixed-grid text: " + error.detail) }
         success(placed) => { return placed }
     }
@@ -1764,11 +1764,11 @@ module func rasterized_glyph(
 ) TextRaster {
     var retained_instance = instance
     if cached = font.cached_raster(retained_instance, glyph_id, density) { return cached }
-    match retained_instance.rasterize_glyph(glyph_id, VectorFont.GlyphRasterOptions(
+    match (try retained_instance.rasterize_glyph(glyph_id, VectorFont.GlyphRasterOptions(
         density:density as float64,
         hinting:VectorFont.Hinting.normal(),
         antialiasing:VectorFont.Antialiasing.grayscale()
-    )) {
+    ))) {
         failure(error) => { panic("GFX.Canvas could not rasterize glyph $(glyph_id): " + error.detail) }
         success(coverage) => {
             var raster = TextRaster(width:0, height:0, alpha:"", offset_x:0, offset_y:0)

@@ -88,7 +88,7 @@ func covers(face:VectorFont.Face, cluster:str) bool {
 
 func shape_run(instance:VectorFont.Instance, value:str, advance:float?) VectorFont.GlyphRun {
     if let fixed = advance { return Rasterizer.fixed_grid_run(instance, value, fixed) }
-    match instance.shape(value) {
+    match (try instance.shape(value)) {
         failure(error) => { panic("GFX.Canvas could not shape text: " + error.detail) }
         success(run) => { return run }
     }
@@ -99,11 +99,11 @@ func shape_run(instance:VectorFont.Instance, value:str, advance:float?) VectorFo
 func positioned_run(run:VectorFont.GlyphRun, x:float64) VectorFont.GlyphRun {
     if x == 0.0 || run.glyph_count() == 0 { return run }
     var glyphs = run.glyphs()
-    match run.place_clusters(
+    match (try run.place_clusters(
         [0],
         [VectorFont.Position(x:glyphs[0].origin_x + x, y:glyphs[0].origin_y)],
         VectorFont.Position(x:run.metrics().advance.x + x, y:run.metrics().advance.y)
-    ) {
+    )) {
         failure(error) => { panic("GFX.Canvas could not compose font runs: " + error.detail) }
         success(placed) => { return placed }
     }

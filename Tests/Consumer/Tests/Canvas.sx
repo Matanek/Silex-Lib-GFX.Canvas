@@ -47,7 +47,7 @@ test "bundled default keeps letters and resolves missing arrows in retained and 
     let measured = drawing.measure_text("A→B", style)
     let expected = runs[2].metrics().advance.x
     assert(Math.abs(measured.width - Math.ceil(expected)) < 0.01)
-    match layer.vector_outlines() {
+    match (try layer.vector_outlines()) {
         failure(error) => { panic(error.detail) }
         success(outlines) => {
             assert(outlines.count() == 6)
@@ -248,7 +248,7 @@ test "place grapheme clusters on a fixed text grid" {
 }
 
 test "retain canonical shaped runs and expose vector outlines" {
-    var face = required_face(VectorFont.Face.default())
+    var face = required_face((try VectorFont.Face.default()))
     var font = Canvas.Font(face)
     var drawing = Canvas()
     drawing.paint(func(painter:&Canvas.Painter) {
@@ -269,7 +269,7 @@ test "retain canonical shaped runs and expose vector outlines" {
     var run = layer.glyph_run()
     assert(run.glyph_count() > 0)
     assert(run.glyph_count() < 6)
-    match layer.vector_outlines() {
+    match (try layer.vector_outlines()) {
         failure(error) => { panic(error.detail) }
         success(placements) => {
             assert(placements.count() == run.glyph_count())
@@ -370,7 +370,7 @@ test "compose one shadowed card as ordered public content" {
     var text = snapshot.text_layers()[0]
     var run = text.glyph_run()
     var coverage = text.coverage_runs()
-    match text.vector_outlines() {
+    match (try text.vector_outlines()) {
         failure(error) => { panic(error.detail) }
         success(outlines) => {
             assert(outlines.count() == run.glyph_count())

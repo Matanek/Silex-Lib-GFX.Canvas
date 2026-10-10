@@ -551,7 +551,7 @@ test "align retained coverage and vectors from their prepared runs" {
     var coverage = layer.coverage_runs(2.0)
     assert(coverage.count() == 2)
     assert(coverage[0].origin.x == Math.floor(expected_x * 2.0) / 2.0)
-    match layer.vector_outlines() {
+    match (try layer.vector_outlines()) {
         failure(error) => { panic(error.detail) }
         success(placements) => {
             assert(!placements.is_empty())

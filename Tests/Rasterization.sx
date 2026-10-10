@@ -448,7 +448,7 @@ func paint_vector_text(painter:&Canvas.Painter, font:Canvas.Font) {
 }
 
 test "wrap a GFX.Font face and rasterize shaped UTF-8 text" {
-    var face = required_vector_face(VectorFont.Face.default())
+    var face = required_vector_face((try VectorFont.Face.default()))
     var font = Canvas.Font(face)
     var style = Canvas.TextStyle(size:18.0, font:font)
     var drawing = Canvas()

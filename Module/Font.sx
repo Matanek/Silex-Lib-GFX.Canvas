@@ -44,7 +44,7 @@ public class Font {
     private var metric_probes:int
 
     init(source:uint8[]) {
-        self.face_value = decoded_face(VectorFont.Face.decode(source))
+        self.face_value = decoded_face((try VectorFont.Face.decode(source)))
         self.instance_sizes = []
         self.instance_weights = []
         self.instance_variations = []
@@ -70,7 +70,7 @@ public class Font {
 
     init(source:str) {
         if source == "" { panic("GFX.Canvas font path cannot be empty") }
-        self.face_value = decoded_face(VectorFont.Face.open(source))
+        self.face_value = decoded_face((try VectorFont.Face.open(source)))
         self.instance_sizes = []
         self.instance_weights = []
         self.instance_variations = []
@@ -121,7 +121,7 @@ public class Font {
 
     static func default() Font {
         if let cached = Font.bundled_default { return cached }
-        var font = Font(decoded_face(VectorFont.Face.default()))
+        var font = Font(decoded_face((try VectorFont.Face.default())))
         font.fallback_value = Font.monospace()
         Font.bundled_default = font
         return font
@@ -129,7 +129,7 @@ public class Font {
 
     static func monospace() Font {
         if let cached = Font.bundled_monospace { return cached }
-        var font = Font(decoded_face(VectorFont.Face.monospace()))
+        var font = Font(decoded_face((try VectorFont.Face.monospace())))
         Font.bundled_monospace = font
         return font
     }
@@ -167,12 +167,12 @@ public class Font {
                 synthesis = VectorFont.Synthesis(embolden:true)
             }
         }
-        var created = decoded_instance(VectorFont.Instance.create(
+        var created = decoded_instance((try VectorFont.Instance.create(
             self.face_value,
             size:size as float64,
             variations:effective,
             synthesis:synthesis
-        ))
+        )))
         if self.instance_values.count() >= 32 { self.discard_oldest_instance() }
         self.instance_sizes.append(size)
         self.instance_weights.append(weight)

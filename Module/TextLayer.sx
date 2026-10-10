@@ -168,7 +168,7 @@ public class TextLayer {
         while run_index < self.retained_runs.count() {
             var run = self.retained_runs[run_index]
             let identity = outline_identity(run.instance())
-            match run.outlines() {
+            match (try run.outlines()) {
                 failure(error) => {
                     return Result<TextGlyphPlacement[], TextVectorError>.failure(TextVectorError(
                         detail:error.detail,

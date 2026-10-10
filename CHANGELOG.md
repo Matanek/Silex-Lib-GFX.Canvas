@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Adopts one `Result` declaration: an ordinary call returns the value or
+  stops the program on failure; `try call()` keeps the `Result`. Existing calls
+  storing results and propagating failures are made explicit. This revision
+  requires the development toolchain with these `try` semantics; publication
+  must coordinate compiler and package versions.
+
 - Interactive `Canvas.Session` now requires `pointer_cursor() GFX.Window.Cursor`; return `standard` for the previous arrow behavior. Existing consumers and migration documentation are updated.
 
 - Add `Painter.clip(rect, callback)` for rectangular group clipping, nested clips and retained revisions. Rasters and ordered content preserve the boundary after child effects; mesh-only extraction rejects it. Changing a clip invalidates text pixels while retaining glyph shaping.
