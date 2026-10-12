@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Canvas.Session requires text_input_target(): an opaque input target and native input area, or null when the producer supplies no area. UI sessions forward it automatically; producers without text return null.
+
 - Bundled fonts automatically resolve missing graphemes through Noto Sans Mono symbols, monochrome Noto Emoji and Noto Sans CJK SC. Fallback faces load lazily; accents, emoji sequences and metrics remain consistent across measurement, rendering and fixed grids. Explicit faces remain strict.
 
 - Adopts one `Result` declaration: an ordinary call returns the value or

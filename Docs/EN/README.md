@@ -331,6 +331,7 @@ class Preview:Canvas.Session {
     func update(delta:float) bool { return advance(delta) }
     func handle(event:@GFX.Input.Event) bool { return interact(event) }
     func accepts_text_input() bool { return editing() }
+    func text_input_target() Canvas.TextInputTarget? { return null }
     func pointer_cursor() GFX.Window.Cursor { return GFX.Window.Cursor.standard }
 }
 ```
@@ -355,6 +356,14 @@ retain the arrow; a UI host forwards the method from its runtime or
 `UI.Session`. This query is independent of drawing invalidation. Viewer applies
 the intent after events even when the drawing is unchanged. Other Canvas
 producers (fixed value, builder or animation) keep their API.
+
+A session also provides `text_input_target() Canvas.TextInputTarget?`.
+Return `null` when it does not supply an input area. A UI session forwards the
+method from its runtime or `UI.Session`. For a custom editor, the target contains
+an opaque `id` and a `Window.TextInputArea` in logical window coordinates;
+keep the identity during composition and change it when switching editors or
+cancelling from application code. Viewer then ends native composition and places
+candidates near the caret.
 
 ## Display characters missing from the primary face
 

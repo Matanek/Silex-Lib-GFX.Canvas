@@ -4,11 +4,19 @@ use GFX.Window
 
 // A platform-neutral interactive source of Canvas drawings. The owner keeps
 // its state; a presenter such as GFX.Viewer only drives this contract.
+// The id is opaque to the presenter. Keep it stable during a composition;
+// change it when switching editor or discarding a composition from application code.
+public struct TextInputTarget {
+    let id:int
+    let area:Window.TextInputArea
+}
+
 public protocol Session {
     func drawing(width:int, height:int) Canvas
     func update(delta:float) bool
     func handle(event:@Events.Event) bool
     func accepts_text_input() bool
+    func text_input_target() TextInputTarget?
     func pointer_cursor() Window.Cursor
 }
 
@@ -19,5 +27,6 @@ package struct EmptySession:Session {
     func update(delta:float) bool { return false }
     func handle(event:@Events.Event) bool { return false }
     func accepts_text_input() bool { return false }
+    func text_input_target() TextInputTarget? { return null }
     func pointer_cursor() Window.Cursor { return Window.Cursor.standard }
 }

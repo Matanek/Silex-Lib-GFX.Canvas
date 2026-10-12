@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Canvas.Session demande text_input_target() : cible opaque et zone de saisie native, ou null lorsque le producteur ne fournit pas de zone. Les sessions UI la relaient automatiquement ; les producteurs sans texte retournent null.
+
 - Les polices embarquées résolvent automatiquement les graphèmes absents avec les symboles Noto Sans Mono, Noto Emoji monochrome puis Noto Sans CJK SC. Faces de repli chargées paresseusement ; accents, séquences emoji et métriques restent cohérents entre mesure, rendu et grille fixe. Les faces explicites restent strictes.
 
 - Adopte la déclaration `Result` unique : l’appel ordinaire rend la valeur

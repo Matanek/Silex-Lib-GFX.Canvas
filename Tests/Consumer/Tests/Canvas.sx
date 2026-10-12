@@ -20,6 +20,7 @@ struct ConsumerSession:Canvas.Session {
     func handle(event:@Input.Event) bool { return false }
     func pointer_cursor() Cursor { return Cursor.standard }
     func accepts_text_input() bool { return false }
+    func text_input_target() Canvas.TextInputTarget? { return null }
 }
 
 test "bundled default keeps letters and resolves missing arrows in retained and fixed text" {

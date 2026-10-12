@@ -18,6 +18,7 @@ public use GFX.Canvas.ImagePaint.ImageSampling
 public use GFX.Canvas.Path.Path
 public use GFX.Canvas.Prepared.Prepared
 public use GFX.Canvas.Session.Session
+public use GFX.Canvas.Session.TextInputTarget
 public use GFX.Canvas.Shapes.Arc
 public use GFX.Canvas.Shapes.Circle
 public use GFX.Canvas.Shapes.Ellipse

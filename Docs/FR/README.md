@@ -343,6 +343,7 @@ class Preview:Canvas.Session {
     func update(delta:float) bool { return advance(delta) }
     func handle(event:@GFX.Input.Event) bool { return interact(event) }
     func accepts_text_input() bool { return editing() }
+    func text_input_target() Canvas.TextInputTarget? { return null }
     func pointer_cursor() GFX.Window.Cursor { return GFX.Window.Cursor.standard }
 }
 ```
@@ -368,6 +369,14 @@ pour conserver la flèche ; un hôte UI relaie la méthode de son runtime ou de
 Viewer applique l’intention après les événements, même si le dessin reste
 inchangé. Les autres producteurs Canvas (valeur fixe, builder ou animation)
 conservent leur API.
+
+Une session fournit aussi `text_input_target() Canvas.TextInputTarget?`.
+Retournez `null` si elle ne renseigne pas de zone de saisie. Une session UI
+relaie la méthode de son runtime ou de `UI.Session`. Pour un éditeur propre,
+la cible contient un `id` opaque et une `Window.TextInputArea` en coordonnées
+logiques de fenêtre ; conservez l’identité pendant la composition et changez-la
+lors d’un changement d’éditeur ou d’une annulation imposée par l’application.
+Viewer termine alors la composition native et place les candidats près du caret.
 
 ## Afficher les caractères absents de la face principale
 
