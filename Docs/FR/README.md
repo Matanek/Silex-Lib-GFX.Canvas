@@ -368,3 +368,21 @@ pour conserver la flèche ; un hôte UI relaie la méthode de son runtime ou de
 Viewer applique l’intention après les événements, même si le dessin reste
 inchangé. Les autres producteurs Canvas (valeur fixe, builder ou animation)
 conservent leur API.
+
+## Afficher les caractères absents de la face principale
+
+Les polices embarquées `Font.default()` et `Font.monospace()` choisissent une
+face de repli pour chaque graphème absent, sans couper un accent ou une séquence
+emoji. Noto Sans Mono fournit les symboles, Noto Emoji les emojis monochromes,
+puis Noto Sans CJK SC les idéogrammes, kana et hangul. Un texte latin couvert
+conserve sa face principale. Les faces de repli sont ouvertes seulement au besoin
+et réutilisées ; aucun téléchargement ou accès aux polices système à l’exécution.
+Les octets embarqués supplémentaires représentent environ 18,4 Mo par exécutable
+qui utilise ces polices ; ils ne sont pas tous décodés au démarrage.
+
+Mesure, dessin retenu, raster, contours et grille fixe utilisent les mêmes runs.
+Les joiners, sélecteurs de variation et tags guident le shaping sans exiger un
+glyphe visible indépendant. Une face explicitement chargée reste stricte ; un
+caractère non couvert par la chaîne conserve un glyphe manquant inspectable.
+Le repli ne fournit pas une composition bidi de paragraphes ni des emojis couleur.
+[Faces et variantes régionales](../../../GFX.Font/Docs/FR/README.md).

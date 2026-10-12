@@ -557,6 +557,12 @@ test "pin hinted text pixels for ligatures marks and fixed cells" {
     var drawing = Canvas()
     var proportional = Canvas.Font.default()
     var monospace = Canvas.Font.monospace()
+    // The astronaut is a real ligature from the pinned bundled emoji face,
+    // rather than the two notdef rectangles in the previous pixel reference.
+    var emoji = Canvas.TextBlock("👩‍🚀",Canvas.TextStyle(size:14.0,font:monospace,fixed_advance:10.0))
+    assert(emoji.glyph_runs().count() == 1)
+    assert(emoji.glyph_runs()[0].missing_glyph_count() == 0)
+    assert(emoji.glyph_runs()[0].glyph_count() == 1)
     drawing.paint(func(painter:&Canvas.Painter) {
         painter.text(
             "office e\u{301} Ελληνικά",
@@ -576,7 +582,7 @@ test "pin hinted text pixels for ligatures marks and fixed cells" {
     })
     let pixels = drawing.rasterize(192, 48).pixels()
     let digest = Crypto.sha256(@pixels[0:pixels.count()])
-    assert(digest == "b5cfa3ecf2eb9ead47408e2b690b8aa30d49b51119398fcf8758b054839cfaf3")
+    assert(digest == "fd834f294f9b8e6e55d53b946cfccdfe09fe7c0e179821d095da429c3a722029")
 }
 
 test "blend retained font color over an opaque Canvas background" {

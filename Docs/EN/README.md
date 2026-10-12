@@ -355,3 +355,21 @@ retain the arrow; a UI host forwards the method from its runtime or
 `UI.Session`. This query is independent of drawing invalidation. Viewer applies
 the intent after events even when the drawing is unchanged. Other Canvas
 producers (fixed value, builder or animation) keep their API.
+
+## Display characters missing from the primary face
+
+Bundled `Font.default()` and `Font.monospace()` select a fallback face for each
+missing grapheme without splitting a combining accent or emoji sequence.
+Noto Sans Mono supplies symbols, monochrome Noto Emoji supplies emojis, and
+Noto Sans CJK SC supplies ideographs, kana and hangul. Covered Latin text keeps
+its primary face. Fallback faces open only when needed and are reused; runtime
+never downloads fonts or searches system fonts. The additional embedded bytes
+amount to about 18.4 MB per executable using these fonts; they are not all
+decoded at startup.
+
+Measurement, retained drawing, raster, outlines and fixed grids use the same
+runs. Joiners, variation selectors and tags guide shaping without requiring a
+separate visible glyph. Explicitly loaded faces remain strict; an uncovered
+character retains an inspectable missing glyph. Fallback does not implement
+paragraph bidi composition or color emojis.
+[Faces and regional forms](../../../GFX.Font/Docs/EN/README.md).

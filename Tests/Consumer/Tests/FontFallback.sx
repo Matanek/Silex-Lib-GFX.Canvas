@@ -1,0 +1,45 @@
+use GFX.Canvas
+use GFX.Font
+use STD.Math
+
+test "automatic bundled fallback preserves latin and whole emoji clusters" {
+    var primary = Canvas.Font.default(); var mono = Canvas.Font.monospace()
+    var mixed = Canvas.TextBlock("é é → 世界 👩‍💻",Canvas.TextStyle(size:18.0))
+    var found_emoji = false; var found_cjk = false; var found_primary = false
+    for run in mixed.glyph_runs() {
+        assert(run.missing_glyph_count() == 0)
+        if run.text() == "👩‍💻" { assert(run.glyph_count() == 1); found_emoji = true }
+        if run.text() == "世界" { found_cjk = true }
+        if run.instance().face().identity() == primary.face().identity() { found_primary = true }
+    }
+    assert(found_emoji && found_cjk && found_primary)
+    var latin = Canvas.TextBlock("Café été",Canvas.TextStyle(size:18.0))
+    assert(latin.glyph_runs().count() == 1)
+    assert(latin.glyph_runs()[0].instance().face().identity() == primary.face().identity())
+    var terminal = Canvas.TextBlock("A世界👩‍💻B",Canvas.TextStyle(size:18.0,font:mono,fixed_advance:12.0))
+    for run in terminal.glyph_runs() { assert(run.missing_glyph_count() == 0) }
+    assert(terminal.glyph_runs()[3].metrics().advance.x == 60.0)
+}
+test "fallback measures and paints emoji and ideographs with preserved baseline" {
+    var drawing = Canvas(); var style = Canvas.TextStyle(size:18.0)
+    drawing.paint(func(painter:&Canvas.Painter) { painter.text("A世界👩‍💻B",Math.Vec2(8.0),style) })
+    var layer = drawing.prepared(180,44).text_layers()[0]
+    var glyphs = layer.glyph_runs(); assert(glyphs.count() == 4)
+    for run in glyphs { assert(run.missing_glyph_count() == 0) }
+    var coverage = layer.coverage_runs()
+    for value in coverage { assert(value.origin.y == coverage[0].origin.y) }
+    assert(drawing.measure_text("A世界👩‍💻B",style).width == Math.ceil(glyphs[3].metrics().advance.x))
+    var image = drawing.rasterize(180,44); var ink = false
+    for pixel in image.pixels() { if pixel != 0 as uint8 { ink = true } }
+    assert(ink)
+}
+test "explicit faces and uncovered scalars retain inspectable missing glyphs" {
+    var primary = Canvas.Font.default()
+    var explicit = Canvas.Font(primary.face())
+    var strict = Canvas.TextBlock("世界",Canvas.TextStyle(font:explicit))
+    assert(strict.glyph_runs()[0].missing_glyph_count() == 2)
+    var unsupported = Canvas.TextBlock("\u{10ffff}",Canvas.TextStyle())
+    var missing = 0
+    for run in unsupported.glyph_runs() { missing += run.missing_glyph_count() }
+    assert(missing == 1)
+}

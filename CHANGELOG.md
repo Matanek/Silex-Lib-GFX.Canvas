@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Bundled fonts automatically resolve missing graphemes through Noto Sans Mono symbols, monochrome Noto Emoji and Noto Sans CJK SC. Fallback faces load lazily; accents, emoji sequences and metrics remain consistent across measurement, rendering and fixed grids. Explicit faces remain strict.
+
 - Adopts one `Result` declaration: an ordinary call returns the value or
   stops the program on failure; `try call()` keeps the `Result`. Existing calls
   storing results and propagating failures are made explicit. This revision
