@@ -382,3 +382,16 @@ separate visible glyph. Explicitly loaded faces remain strict; an uncovered
 character retains an inspectable missing glyph. Fallback does not implement
 paragraph bidi composition or color emojis.
 [Faces and regional forms](../../../GFX.Font/Docs/EN/README.md).
+
+## Session accessibility semantics
+
+`Canvas.Session.accessibility_source()` returns a `GFX.Accessibility.Source?`.
+Its default body returns `null`: existing producers remain valid without an
+additional method. Custom producers may provide their own source; `UI.Session`
+supplies it automatically. Retain one reader during presentation because each
+new source may track changes independently.
+
+Viewer connects this capability to Window automatically on macOS. Native
+actions use the producer’s state and wake the presenter; closing detaches peers
+before destroying the window. Inspection and VoiceOver qualification is ongoing.
+Linux and Windows bridges remain future work.

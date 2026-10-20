@@ -1,6 +1,7 @@
 use GFX.Canvas.Canvas.Canvas
 use GFX.Input.Events
 use GFX.Window
+use GFX.Accessibility
 
 // A platform-neutral interactive source of Canvas drawings. The owner keeps
 // its state; a presenter such as GFX.Viewer only drives this contract.
@@ -18,6 +19,8 @@ public protocol Session {
     func accepts_text_input() bool
     func text_input_target() TextInputTarget?
     func pointer_cursor() Window.Cursor
+    // Optional semantics for presenters. Existing drawing sessions remain valid.
+    func accessibility_source() Accessibility.Source? { return null }
 }
 
 // Keeps the protocol's dynamic table complete even when a consumer only uses

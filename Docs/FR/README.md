@@ -395,3 +395,17 @@ glyphe visible indépendant. Une face explicitement chargée reste stricte ; un
 caractère non couvert par la chaîne conserve un glyphe manquant inspectable.
 Le repli ne fournit pas une composition bidi de paragraphes ni des emojis couleur.
 [Faces et variantes régionales](../../../GFX.Font/Docs/FR/README.md).
+
+## Sémantique accessible des sessions
+
+`Canvas.Session.accessibility_source()` retourne une `GFX.Accessibility.Source?`.
+Son comportement par défaut retourne `null` : les producteurs existants restent
+valides sans méthode supplémentaire. Un producteur personnalisé peut fournir sa
+source ; `UI.Session` la fournit automatiquement. Conservez un lecteur pendant
+la présentation, car chaque création de source peut avoir son propre suivi des
+changements.
+
+Viewer raccorde cette capacité à Window automatiquement sur macOS. Les actions
+natives réutilisent l’état du producteur et réveillent le présentateur ; la
+fermeture détache les pairs avant la destruction de la fenêtre. L’inspection et
+VoiceOver restent en qualification. Les ponts Linux et Windows sont à venir.
