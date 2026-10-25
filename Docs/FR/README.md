@@ -374,7 +374,7 @@ Une session fournit aussi `text_input_target() Canvas.TextInputTarget?`.
 Retournez `null` si elle ne renseigne pas de zone de saisie. Une session UI
 relaie la méthode de son runtime ou de `UI.Session`. Pour un éditeur propre,
 la cible contient un `id` opaque et une `Window.TextInputArea` en coordonnées
-logiques de fenêtre ; conservez l’identité pendant la composition et changez-la
+logiques de dessin ; conservez l’identité pendant la composition et changez-la
 lors d’un changement d’éditeur ou d’une annulation imposée par l’application.
 Viewer termine alors la composition native et place les candidats près du caret.
 

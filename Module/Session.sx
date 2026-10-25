@@ -5,6 +5,7 @@ use GFX.Accessibility
 
 // A platform-neutral interactive source of Canvas drawings. The owner keeps
 // its state; a presenter such as GFX.Viewer only drives this contract.
+// Areas use logical drawing coordinates; presenters map them to their window.
 // The id is opaque to the presenter. Keep it stable during a composition;
 // change it when switching editor or discarding a composition from application code.
 public struct TextInputTarget {

@@ -360,7 +360,7 @@ producers (fixed value, builder or animation) keep their API.
 A session also provides `text_input_target() Canvas.TextInputTarget?`.
 Return `null` when it does not supply an input area. A UI session forwards the
 method from its runtime or `UI.Session`. For a custom editor, the target contains
-an opaque `id` and a `Window.TextInputArea` in logical window coordinates;
+an opaque `id` and a `Window.TextInputArea` in logical drawing coordinates;
 keep the identity during composition and change it when switching editors or
 cancelling from application code. Viewer then ends native composition and places
 candidates near the caret.
