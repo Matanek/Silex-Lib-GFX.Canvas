@@ -12,4 +12,8 @@ silex install GFX.Canvas
 - [French documentation](Docs/FR/README.md)
 - [English documentation](Docs/EN/README.md)
 
-The package requires Silex 0.44.0 or newer.
+The last released package requires Silex 0.44.0 or newer.
+
+This development revision requires the matching Silex development compiler,
+including protocol default bodies and native C callback support used by the
+desktop accessibility adapters.
