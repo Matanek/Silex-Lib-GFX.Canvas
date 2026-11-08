@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.0] - 2026-11-08
 
 - Clarify that TextInputTarget carries an area in logical drawing coordinates: the presenter converts it to window coordinates, as it does for the accessibility source. Viewer applies position and anchor automatically.
 
@@ -12,9 +12,8 @@
 
 - Adopts one `Result` declaration: an ordinary call returns the value or
   stops the program on failure; `try call()` keeps the `Result`. Existing calls
-  storing results and propagating failures are made explicit. This revision
-  requires the development toolchain with these `try` semantics; publication
-  must coordinate compiler and package versions.
+  storing results and propagating failures are made explicit. This version
+  requires Silex 0.48.0 or newer and the coordinated dependency versions.
 
 - Interactive `Canvas.Session` now requires `pointer_cursor() GFX.Window.Cursor`; return `standard` for the previous arrow behavior. Existing consumers and migration documentation are updated.
 
