@@ -1,10 +1,10 @@
 # Changelog
 
-## [0.5.0] - 2026-11-08
+## [0.5.0] - 2026-11-09
 
 - Clarify that TextInputTarget carries an area in logical drawing coordinates: the presenter converts it to window coordinates, as it does for the accessibility source. Viewer applies position and anchor automatically.
 
-- Canvas.Session offers optional accessibility_source() with a null default, preserving existing conformances. Requires the development toolchain supporting protocol method bodies.
+- Canvas.Session offers optional accessibility_source() with a null default, preserving existing conformances. Requires Silex 0.48.0 or newer, which supports protocol method bodies.
 
 - Canvas.Session requires text_input_target(): an opaque input target and native input area, or null when the producer supplies no area. UI sessions forward it automatically; producers without text return null.
 

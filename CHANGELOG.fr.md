@@ -1,10 +1,12 @@
 # Changelog
 
-## [0.5.0] - 2026-11-08
+## [0.5.0] - 2026-11-09
 
 - Précise que TextInputTarget porte une zone en coordonnées logiques de dessin : le présentateur assure sa conversion vers la fenêtre, comme pour la source accessible. Viewer tient compte de position et anchor automatiquement.
 
-- Canvas.Session propose accessibility_source() optionnel, avec défaut null : les conformances existantes restent compatibles. Requiert la toolchain de développement prenant en charge les corps de méthodes de protocole.
+- Canvas.Session propose accessibility_source() optionnel, avec défaut null : les conformances existantes restent compatibles. Requiert Silex 0.48.0 ou supérieur, qui prend en charge les corps de méthodes de protocole.
+
+- `Canvas.Session` demande désormais `pointer_cursor() GFX.Window.Cursor` ; retourner `standard` pour conserver le pointeur flèche. Les consommateurs et le guide de migration sont adaptés.
 
 - Canvas.Session demande text_input_target() : cible opaque et zone de saisie native, ou null lorsque le producteur ne fournit pas de zone. Les sessions UI la relaient automatiquement ; les producteurs sans texte retournent null.
 
